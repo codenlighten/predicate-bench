@@ -56,6 +56,36 @@ harness's signing context; a static value could never satisfy `OP_CHECKSIG`. Thi
 a 32-byte lock that the interpreter accepts for the owner and refuses for anyone else — a
 forged public key trips `NULLFAIL`, the same policy bit the hand-written predicates respect.
 
+## Bounded loops, unrolled
+
+A predicate can iterate over fixed-size data with a **compile-time-bounded loop** — the same
+safe model sCrypt enforces (`for i < CONST`, no `break`, no recursion). The bound is known
+when the script is built, so the loop is *unrolled*: there is no loop in the emitted Script,
+just the body repeated, and the loop variable `i` is a constant in each copy.
+
+A loop carries an accumulator introduced with `let` and updated by assignment, indexes
+witness arrays (`given sib[3]`) and baked arrays (`this.path[i]`) by the constant `i`,
+concatenates bytes with `++`, and branches at run time with `if(cond, a, b)` (a real
+`OP_IF`/`OP_ELSE`/`OP_ENDIF`, both arms checked to leave the same stack). That is exactly
+what a **Merkle membership proof** needs:
+
+```
+given leaf
+given sib[3]                       # the proof: one sibling per level
+given dir[3]                       # 1 if our node is the right child
+let h = leaf
+for i in 3 {
+  h = if(dir[i], hash256(sib[i] ++ h), hash256(h ++ sib[i]))
+}
+assert(eq(h, this.root))
+```
+
+`lock({ root })` bakes the tree root; `unlock({ leaf, sib: [...], dir: [...] })` supplies a
+leaf and its path. It compiles to a 97-byte lock (a 3-deep unrolled fold) that the
+interpreter accepts for a genuine member and refuses for a forged leaf or a tampered path.
+The bound must resolve to a constant — a number or a baked `this.N` — so the script size is
+fixed and knowable, never spender-controlled.
+
 ## How it is built (and why it is ours, not sCrypt's)
 
 sCrypt compiles a strict subset of TypeScript through the real TypeScript compiler to an
@@ -79,9 +109,11 @@ built-ins, a hashlock and a sha256 commitment — each verified against the inte
 ## Where it sits
 
 This is the beginning of a general contract *language*, complementary to the curated
-covenants rather than a replacement: expressions for new, straight-line logic; `@contract`
-classes and the [`StackAsm`](authoring.md) escape hatch for the hand-tuned, self-recreating
-covenants. Ownership already authors from a condition (`checkSig`); the natural next steps —
-compile-time-bounded loops that unroll (Merkle proofs, iteration), and structs and fixed-size
-arrays over the existing fixed-width fields — extend the expression surface without giving up
-the real-interpreter, mainnet-proven, refusal-first bar the rest of the bench holds.
+covenants rather than a replacement: expressions for new, straight-line logic and bounded
+iteration; `@contract` classes and the [`StackAsm`](authoring.md) escape hatch for the
+hand-tuned, self-recreating covenants. Ownership authors from a condition (`checkSig`) and
+Merkle-style proofs from a bounded loop; the natural next step — named **structs** over the
+existing fixed-width fields, so a state layout has field names rather than positions —
+extends the surface without giving up the real-interpreter, mainnet-proven, refusal-first bar
+the rest of the bench holds. A real TypeScript-AST front end is the eventual richer subset;
+the hand-written parser is the deliberate, zero-dependency start.

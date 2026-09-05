@@ -118,6 +118,43 @@ predicate('!(a == b)', 'given a b\nassert(!(a == b))', [
   ])
 }
 
+// bounded loops that unroll: a hash chain folds a fixed number of items into a commitment
+{
+  const H = (b) => bsv.crypto.Hash.sha256sha256(b)
+  const seed = H(Buffer.from('genesis'))
+  const items = [H(Buffer.from('a')), H(Buffer.from('b')), H(Buffer.from('c'))]
+  let h = seed
+  for (const it of items) h = H(Buffer.concat([h, it]))
+  const commit = h
+  predicate('hash chain: fold 3 items, for i in 3 { h = hash256(h ++ item[i]) }',
+    'given seed\ngiven item[3]\nlet h = seed\nfor i in 3 {\n  h = hash256(h ++ item[i])\n}\nassert(eq(h, this.commit))', [
+      { seed, item: items, commit },
+      { seed, item: [items[0], items[1], H(Buffer.from('z'))], commit, shouldFail: true }
+    ])
+}
+
+// a real Merkle membership proof: an unrolled loop with a runtime direction (if/else per level)
+{
+  const H = (b) => bsv.crypto.Hash.sha256sha256(b)
+  const leaves = Array.from({ length: 8 }, (_, i) => H(Buffer.from('leaf' + i)))
+  const idx = 5
+  let level = leaves.slice(); let j = idx
+  const sib = []; const dir = []
+  while (level.length > 1) {
+    const right = j & 1
+    sib.push(level[right ? j - 1 : j + 1]); dir.push(right ? 1 : 0)
+    const nxt = []; for (let k = 0; k < level.length; k += 2) nxt.push(H(Buffer.concat([level[k], level[k + 1]])))
+    level = nxt; j = j >> 1
+  }
+  const root = level[0]
+  predicate('Merkle proof: for i in 3 { h = if(dir[i], hash256(sib[i] ++ h), hash256(h ++ sib[i])) }',
+    'given leaf\ngiven sib[3]\ngiven dir[3]\nlet h = leaf\nfor i in 3 {\n  h = if(dir[i], hash256(sib[i] ++ h), hash256(h ++ sib[i]))\n}\nassert(eq(h, this.root))', [
+      { leaf: leaves[idx], sib, dir, root },
+      { leaf: H(Buffer.from('forged')), sib, dir, root, shouldFail: true },
+      { leaf: leaves[idx], sib: [sib[0], sib[1], H(Buffer.from('x'))], dir, root, shouldFail: true }
+    ])
+}
+
 console.log('\nthe compiler REFUSES malformed source (a bad predicate never reaches the chain):')
 const rejects = (title, source, re) => {
   try { expr.compile(source); ok(false, `${title} — compiled but should have thrown`) } catch (e) { ok(re.test(e.message), `${title} → “${e.message}”`) }
@@ -125,6 +162,8 @@ const rejects = (title, source, re) => {
 rejects('unknown function', 'given x\nassert(md5(x) == 0)', /unknown function 'md5'/)
 rejects('wrong arity', 'given x\nassert(hash160(x, x) == 0)', /takes 1 argument/)
 rejects('undeclared witness', 'given x\nassert(y == 0)', /'y' is not a declared witness/)
+rejects('index of a non-array', 'given x\nassert(x[0] == 0)', /not a declared witness array/)
+rejects('assign before let', 'given x\nh = x\nassert(h == 0)', /assigned before it is introduced with 'let'/)
 rejects('no assert', 'given x', /needs at least one assert/)
 rejects('trailing tokens', 'given x\nassert(x + )', /expected|unexpected|trailing/)
 try { expr.compile('given x\nassert(x == this.t)').lock({}); ok(false, 'lock without the baked param should throw') } catch (e) { ok(/unbound this\.t/.test(e.message), `unbound param at lock → “${e.message}”`) }
