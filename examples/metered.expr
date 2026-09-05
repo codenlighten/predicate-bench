@@ -1,0 +1,10 @@
+# A bounded counter — a coin that may hop forward a fixed number of times, then must settle to
+# a chosen address. A two-branch covenant: while count < maxHops, increment and recreate (hop);
+# at the cap, pay the settle address and stop (redeem). A flag in the unlocking script picks the
+# branch. Compiles BYTE-IDENTICAL to the deployed `metered` covenant. It never strands — the
+# counter always advances to the cap, then exits.
+#   sci deploy examples/metered.expr count=0 hopFee=250 maxHops=2 settle=<addr>
+#   sci unlock <txid> branch=hop        # advance; or branch=redeem at the cap
+state count: u32
+recreate(this.hopFee) while count < this.maxHops
+redeem(this.settle)

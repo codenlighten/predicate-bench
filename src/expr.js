@@ -168,7 +168,8 @@ function parser (toks) {
     }
     if (t.v === 'assert') { next(); eat('('); const e = or(); eat(')'); return { k: 'assert', expr: e } }
     if (t.v === 'pay') { next(); eat('('); const dest = or(); eat(','); const amount = or(); eat(')'); return { k: 'pay', dest, amount } }
-    if (t.v === 'recreate') { next(); eat('('); const fee = or(); eat(')'); return { k: 'recreate', fee } }
+    if (t.v === 'recreate') { next(); eat('('); const fee = or(); eat(')'); let guard = null; if (peek() && peek().v === 'while') { next(); guard = or() } return { k: 'recreate', fee, guard } }
+    if (t.v === 'redeem') { next(); eat('('); const dest = or(); eat(')'); return { k: 'redeem', dest } }
     if (t.v === 'state') { next(); const name = eat0id(); eat(':'); const type = eat0id(); return { k: 'state', name, type } }
     // assignment: ident = expr
     if (t.t === 'id') { const name = next().v; eat('='); return { k: 'assign', name, expr: or() } }
@@ -417,7 +418,26 @@ function compile (source) {
   // one — kept out of v1 so the sound path stays simple.
   const payStmts = stmts.filter((s) => s.k === 'pay')
   const recreateStmts = stmts.filter((s) => s.k === 'recreate')
+  const redeemStmts = stmts.filter((s) => s.k === 'redeem')
   const stateDecls = stmts.filter((s) => s.k === 'state')
+  // A bounded counter is the two-branch shape of the deployed `metered` covenant: while the
+  // counter is below a cap, increment and recreate (hop); at the cap, settle to a fixed
+  // address (redeem). Recognised when a state field carries a guarded recreate and a redeem.
+  const bounded = stateDecls.length === 1 && recreateStmts.length === 1 && recreateStmts[0].guard && redeemStmts.length === 1
+  if (redeemStmts.length && !bounded) throw new Error("expr: redeem(dest) pairs with a guarded recreate — 'state c; recreate(fee) while c < this.max; redeem(this.settle)'")
+  function meteredShape (params) {
+    const g = recreateStmts[0].guard
+    if (!g || g.k !== 'bin' || g.op !== '<' || g.l.k !== 'var' || g.l.name !== stateDecls[0].name || g.r.k !== 'param') {
+      throw new Error(`expr: a bounded counter's guard must be '${stateDecls[0].name} < this.<max>'`)
+    }
+    if (redeemStmts[0].dest.k !== 'param') throw new Error('expr: redeem(dest) — dest must be a baked address (this.<name>)')
+    return {
+      max: params[g.r.name], settle: params[redeemStmts[0].dest.name], fee: feeOf(recreateStmts[0], params),
+      width: STATE_TYPES[stateDecls[0].type], name: stateDecls[0].name,
+      maxName: g.r.name, settleName: redeemStmts[0].dest.name,
+      feeName: recreateStmts[0].fee.k === 'param' ? recreateStmts[0].fee.name : null
+    }
+  }
   if (recreateStmts.length > 1) throw new Error('expr: a covenant can recreate() itself at most once')
   if (recreateStmts.length && payStmts.length) throw new Error('expr: recreate() and pay() both bind the output set — use one (a recreate with a payout tail is a later rung)')
   if (stateDecls.length > 1) throw new Error('expr: a covenant may carry one state field for now (a counter)')
@@ -438,6 +458,24 @@ function compile (source) {
     usesContext,
     lock (params = {}) {
       const s = new Script()
+      if (usesContext && bounded) {
+        // A bounded counter — the two-branch shape of `metered`, byte for byte. A flag in the
+        // unlocking script picks the branch: hop (count < max → increment and recreate) or
+        // redeem (count >= max → settle to a fixed address). The counter never strands: it
+        // advances to the cap, then exits.
+        const m = meteredShape(params)
+        s.add(stateBuf(params[m.name] ?? 0, m.width)).add(Opcode.OP_DROP)
+        C.authenticateThenBranch(s)
+        covsteps.meteredReadCounterKeep(s, { headBytes: STATE_HEAD, counterBytes: m.width })
+        covsteps.meteredGuardBelow(s, { max: m.max })
+        covsteps.meteredIncrementRecreate(s, { counterBytes: m.width, fee: m.fee })
+        s.add(Opcode.OP_ELSE)
+        covsteps.meteredReadCounterDrop(s, { headBytes: STATE_HEAD, counterBytes: m.width })
+        covsteps.meteredGuardAtLeast(s, { max: m.max })
+        covsteps.meteredPayFixed(s, { address: bsv.Address.fromString(m.settle), fee: m.fee })
+        s.add(Opcode.OP_ENDIF)
+        return s
+      }
       if (usesContext && stateDecls.length) {
         // A stateful counter covenant: a fixed-width counter at the front (pushed and dropped),
         // then the proven read-increment-recreate machinery (metered's hop). Each spend advances
@@ -495,6 +533,12 @@ function compile (source) {
     },
     unlock (ctx = {}) {
       const s = new Script()
+      if (usesContext && bounded) {
+        // The branch flag rides BELOW the preimage: the preimage must be on top for the single
+        // hoisted OP_PUSH_TX, which then swaps the flag up for OP_IF. OP_1 = hop, OP_0 = redeem.
+        const flag = ctx.branch === 'redeem' ? Opcode.OP_0 : Opcode.OP_1
+        return s.add(flag).add(C.grindPreimage(ctx.tx, ctx.inputIndex, ctx.lockingScript, ctx.satoshis, ctx.at ?? 0, ctx.sighashType))
+      }
       if (usesContext) {
         // The witness is the BIP-143 preimage of THIS spend. OP_PUSH_TX needs a preimage whose
         // in-script signature is clean low-S, so grind a malleable field. The input is non-final
@@ -535,7 +579,23 @@ function compile (source) {
   // A recreate() covenant dictates a single output: this exact script, carrying value − fee. No
   // continuation() is needed — the recreated coin is byte-identical, so onchain records it from
   // the deployment itself. A test passes actualOutputs / actualAmount / actualScript to break it.
-  if (recreateStmts.length) {
+  if (bounded) {
+    // Two output paths: hop recreates the counter at +1; redeem pays the settle address.
+    predicate.outputs = (ctx = {}) => {
+      if (ctx.actualOutputs) return ctx.actualOutputs
+      const m = meteredShape(ctx)
+      if ((ctx.branch || 'hop') === 'redeem') return [helpers.p2pkhOutput(m.settle, ctx.actualAmount ?? (ctx.satoshis - m.fee))]
+      const script = ctx.actualScript || predicate.lock({ ...ctx, [m.name]: (ctx[m.name] ?? 0) + 1 })
+      return [new bsv.Transaction.Output({ script, satoshis: ctx.actualAmount ?? (ctx.satoshis - m.fee) })]
+    }
+    predicate.continuation = (ctx = {}) => {
+      if ((ctx.branch || 'hop') === 'redeem') return null      // redeem is terminal (pays a p2pkh)
+      const m = meteredShape(ctx)
+      const np = { [m.name]: (ctx[m.name] ?? 0) + 1 }
+      for (const nm of [m.maxName, m.feeName, m.settleName]) if (nm && ctx[nm] !== undefined) np[nm] = ctx[nm]
+      return { script: predicate.lock(np), params: np }
+    }
+  } else if (recreateStmts.length) {
     const successor = (ctx) => stateDecls.length
       ? predicate.lock({ ...ctx, [stateDecls[0].name]: (ctx[stateDecls[0].name] ?? 0) + 1 })  // counter advanced
       : ctx.lockingScript                                                                     // byte-identical

@@ -199,6 +199,23 @@ predicate('!(a == b)', 'given a b\nassert(!(a == b))', [
   'the counter covenant recreates itself with count incremented by exactly one')
 }
 
+// a BOUNDED counter — the two-branch shape of metered: hop while below the cap, redeem at it
+{
+  const metered = require('../src/predicates/metered')
+  const settle = '1PZBjMiVngoEhvffs7k5Rgysw4yAZVspcS'
+  const src = 'state count: u32\nrecreate(this.hopFee) while count < this.maxHops\nredeem(this.settle)'
+  const base = { hopFee: 250, maxHops: 2, settle }
+  predicate('bounded counter (metered): recreate while count < max; redeem', src, [
+    { ...base, count: 0, branch: 'hop' },
+    { ...base, count: 1, branch: 'hop' },
+    { ...base, count: 2, branch: 'hop', shouldFail: true },       // at the cap, cannot hop
+    { ...base, count: 2, branch: 'redeem' },
+    { ...base, count: 0, branch: 'redeem', shouldFail: true }     // below the cap, cannot redeem
+  ])
+  ok(expr.compile(src).lock({ count: 2, ...base }).toHex() === metered.lock({ counter: 2, maxHops: 2, hopFee: 250, redeemTo: settle }).toHex(),
+    'the bounded counter → BYTE-IDENTICAL to the deployed metered covenant (488 B, already on mainnet)')
+}
+
 // m-of-n multisig: a threshold of signatures, checked in pubkey order (NULLDUMMY dummy)
 {
   const keys = [0, 1, 2].map(() => bsv.PrivateKey.fromRandom())

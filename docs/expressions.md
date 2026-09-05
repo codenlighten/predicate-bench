@@ -162,9 +162,22 @@ A fixed-width counter rides in the covenant's own script; every spend splices it
 it by one, and splices it into the successor, so the coin carries a provable, un-forgeable hop
 count and refuses any transition that is not exactly `+1`. It reuses the exact
 read-increment-recreate machinery the deployed [`metered`](predicates.md#metered) covenant is
-built from, so the splice is sound; being monotonic, it never strands. That is a state machine
-authored from an expression — the frontier's summit. A *guarded* counter (a bound with an exit
-branch) and richer transitions are the natural continuation, on the same bridge.
+built from, so the splice is sound; being monotonic, it never strands.
+
+Give it a **bound and an exit** and it becomes a two-branch state machine — the coin may hop
+forward a fixed number of times, then must settle:
+
+```
+state count: u32
+recreate(this.hopFee) while count < this.maxHops   # hop: increment and recreate, below the cap
+redeem(this.settle)                                 # redeem: settle to a fixed address, at the cap
+```
+
+A flag in the unlocking script picks the branch. This compiles **byte-identical to the deployed
+[`metered`](predicates.md#metered) covenant** (488 B) — a **fourth** on-chain covenant reproduced
+from a condition, and the first *two-branch* one. The interpreter refuses a hop at the cap and a
+redeem below it, and the counter never strands: it advances to the bound, then exits. A full
+state machine — carrying state, branching, terminating — authored from three lines.
 
 ## From the command line
 
