@@ -156,6 +156,7 @@ function parser (toks) {
     }
     if (t.v === 'assert') { next(); eat('('); const e = or(); eat(')'); return { k: 'assert', expr: e } }
     if (t.v === 'pay') { next(); eat('('); const dest = or(); eat(','); const amount = or(); eat(')'); return { k: 'pay', dest, amount } }
+    if (t.v === 'recreate') { next(); eat('('); const fee = or(); eat(')'); return { k: 'recreate', fee } }
     // assignment: ident = expr
     if (t.t === 'id') { const name = next().v; eat('='); return { k: 'assign', name, expr: or() } }
     throw new Error(`expr: unrecognised statement starting at '${t.v ?? t.t}'`)
@@ -211,6 +212,13 @@ function payOutput (st, params) {
   const amount = st.amount.k === 'num' ? st.amount.v : params[st.amount.name]
   if (typeof amount !== 'number') throw new Error(`expr: pay — amount ${st.amount.k === 'num' ? st.amount.v : 'this.' + st.amount.name} must be a number`)
   return helpers.p2pkhOutput(dest, amount)
+}
+
+// The hop fee of a recreate() — a positive integer from a number or a baked param.
+function feeOf (st, params) {
+  const f = st.fee.k === 'num' ? st.fee.v : (st.fee.k === 'param' ? params[st.fee.name] : undefined)
+  if (!Number.isInteger(f) || f <= 0) throw new Error('expr: recreate(fee) — fee must be a positive integer')
+  return f
 }
 
 function asBuf (v, ref) {
@@ -338,7 +346,7 @@ function compile (source) {
     if (d.size === undefined) flat.push(d.name)
     else for (let i = 0; i < d.size; i++) flat.push(d.name + i)
   }
-  if (!stmts.some((s) => s.k === 'assert' || s.k === 'pay')) throw new Error('expr: a predicate needs at least one assert() or pay()')
+  if (!stmts.some((s) => s.k === 'assert' || s.k === 'pay' || s.k === 'recreate')) throw new Error('expr: a predicate needs at least one assert(), pay() or recreate()')
 
   // Fail fast, at compile time: an unknown function, a wrong arity, an undeclared witness or
   // variable, or an index of something that is not an array. A bad predicate never builds.
@@ -385,7 +393,7 @@ function compile (source) {
   }
   const vStmts = (list) => {
     for (const st of list) {
-      if (st.k === 'let') { vExpr(st.expr); known.add(st.name) } else if (st.k === 'assign') { if (!known.has(st.name)) throw new Error(`expr: '${st.name}' is assigned before it is introduced with 'let'`); vExpr(st.expr) } else if (st.k === 'assert') { vExpr(st.expr) } else if (st.k === 'pay') { vPay(st) } else if (st.k === 'for') { known.add(st.varName); vStmts(st.body) }
+      if (st.k === 'let') { vExpr(st.expr); known.add(st.name) } else if (st.k === 'assign') { if (!known.has(st.name)) throw new Error(`expr: '${st.name}' is assigned before it is introduced with 'let'`); vExpr(st.expr) } else if (st.k === 'assert') { vExpr(st.expr) } else if (st.k === 'pay') { vPay(st) } else if (st.k === 'recreate') { if (st.fee.k !== 'num' && st.fee.k !== 'param') throw new Error('expr: recreate(fee) — fee must be a number or this.<name>') } else if (st.k === 'for') { known.add(st.varName); vStmts(st.body) }
     }
   }
   vStmts(stmts)
@@ -395,8 +403,11 @@ function compile (source) {
   // it with a user witness stack is a real design (preimage + witness together), but a subtle
   // one — kept out of v1 so the sound path stays simple.
   const payStmts = stmts.filter((s) => s.k === 'pay')
-  const usesContext = ctxInfo.used || payStmts.length > 0
-  if (usesContext && flat.length) throw new Error('expr: a covenant (tx.<field> or pay(...)) cannot also declare a witness (given ...) yet')
+  const recreateStmts = stmts.filter((s) => s.k === 'recreate')
+  if (recreateStmts.length > 1) throw new Error('expr: a covenant can recreate() itself at most once')
+  if (recreateStmts.length && payStmts.length) throw new Error('expr: recreate() and pay() both bind the output set — use one (a recreate with a payout tail is a later rung)')
+  const usesContext = ctxInfo.used || payStmts.length > 0 || recreateStmts.length > 0
+  if (usesContext && flat.length) throw new Error('expr: a covenant (tx.<field>, pay(...) or recreate(...)) cannot also declare a witness (given ...) yet')
 
   const predicate = {
     name: 'expr',
@@ -425,7 +436,20 @@ function compile (source) {
           asm.s.add(Buffer.from(expected)).add(Opcode.OP_EQUALVERIFY)
         }
         const env = { params, arrays, loop: {}, ctr: { n: 0 } }
-        for (const st of stmts) if (st.k !== 'pay') execStmt(st, asm, env)
+        for (const st of stmts) if (st.k !== 'pay' && st.k !== 'recreate') execStmt(st, asm, env)
+        if (recreateStmts.length) {
+          // Self-recreation: the required output is THIS script, read out of the authenticated
+          // preimage (preimage[104 : len-52] is the scriptlen‖script half of a TxOut), carrying
+          // the input value minus the hop fee. requireOutputIs leaves the result — the terminal.
+          const fee = feeOf(recreateStmts[0], params)
+          C.requireSighashAll(asm.s)
+          C.selfChunk(asm.s)
+          asm.s.add(Opcode.OP_OVER)
+          C.newValueLE(asm.s, fee)
+          asm.s.add(Opcode.OP_SWAP).add(Opcode.OP_CAT)
+          C.requireOutputIs(asm.s)
+          return s
+        }
         asm.drop()                                         // drop the preimage
         asm.raw(Opcode.OP_1, 0, ['true'])
         return s
@@ -476,6 +500,15 @@ function compile (source) {
   // from them (not change wherever they like). A test may pass actualOutputs to spend elsewhere
   // and watch the commitment refuse it.
   if (payStmts.length) predicate.outputs = (ctx = {}) => ctx.actualOutputs || payStmts.map((st) => payOutput(st, ctx))
+  // A recreate() covenant dictates a single output: this exact script, carrying value − fee. No
+  // continuation() is needed — the recreated coin is byte-identical, so onchain records it from
+  // the deployment itself. A test passes actualOutputs / actualAmount / actualScript to break it.
+  if (recreateStmts.length) {
+    predicate.outputs = (ctx = {}) => ctx.actualOutputs || [new bsv.Transaction.Output({
+      script: ctx.actualScript || ctx.lockingScript,
+      satoshis: ctx.actualAmount ?? (ctx.satoshis - feeOf(recreateStmts[0], ctx))
+    })]
+  }
   return predicate
 }
 

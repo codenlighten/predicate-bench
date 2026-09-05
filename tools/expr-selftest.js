@@ -161,6 +161,28 @@ predicate('!(a == b)', 'given a b\nassert(!(a == b))', [
     ])
 }
 
+// self-recreation: recreate() forwards the coin into another instance of this exact covenant
+{
+  const helpers = require('@smartledger/bsv/lib/covenant/helpers')
+  const perp = require('../src/predicates/perpetual')
+  const stranger = [helpers.p2pkhOutput(bsv.PrivateKey.fromRandom().toAddress(), 800)]
+  predicate('perpetual: recreate(this.hopFee)', 'recreate(this.hopFee)', [
+    { hopFee: 150 },
+    { hopFee: 150, actualOutputs: stranger, shouldFail: true }   // does not recreate the covenant
+  ])
+  ok(expr.compile('recreate(this.hopFee)').lock({ hopFee: 150 }).toHex() === perp.lock({ hopFee: 150 }).toHex(),
+    'recreate(this.hopFee) → BYTE-IDENTICAL to the deployed perpetual covenant (385 B, already on mainnet)')
+
+  // compose again: a perpetual that may advance only after a height (recreate ∧ timelock)
+  const NB = 964000
+  const g = { hopFee: 150, notBefore: NB }
+  predicate('time-gated perpetual (recreate ∧ timelock)', 'recreate(this.hopFee)\nassert(tx.locktime >= this.notBefore)', [
+    { ...g, at: NB + 10 },
+    { ...g, at: NB - 1, shouldFail: true },
+    { ...g, at: NB, sequenceNumber: 0xffffffff, shouldFail: true }
+  ])
+}
+
 // m-of-n multisig: a threshold of signatures, checked in pubkey order (NULLDUMMY dummy)
 {
   const keys = [0, 1, 2].map(() => bsv.PrivateKey.fromRandom())

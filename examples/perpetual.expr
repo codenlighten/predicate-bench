@@ -1,0 +1,6 @@
+# A perpetual covenant: every spend must recreate THIS exact script, paying itself minus a
+# fixed hop fee. The coin never leaves the lock — it moves forward through identical UTXOs,
+# shrinking by the fee each hop. recreate() reads the script out of the preimage, so it never
+# needs its own hash. Compiles BYTE-IDENTICAL to the deployed `perpetual` predicate.
+#   sci deploy examples/perpetual.expr hopFee=150
+recreate(this.hopFee)

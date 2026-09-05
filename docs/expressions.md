@@ -130,10 +130,29 @@ assert(tx.locktime >= this.notBefore)
 
 A 413-byte vault that moves the coins only to a fixed destination and only after a height,
 verified on the interpreter to refuse a redirected output, a too-early spend, and a final
-input. This is the covenant frontier working: two proven primitives, combined into one that
-was never written by hand, judged by the block validator. The next rung — **self-recreation**
-(a covenant whose output is another instance of itself, carrying updated state) — builds on
-the same preimage-and-`pay` bridge, held to the same real-interpreter, refusal-first bar.
+input. Two proven primitives, combined into one that was never written by hand.
+
+The summit is **self-recreation** — a covenant whose output is another instance of *itself*.
+`recreate(fee)` reads this script out of the authenticated preimage (the preimage carries a
+covenant's own `scriptlen‖script`), pays it back the input value minus the fee, and binds that
+as the sole output:
+
+```
+recreate(this.hopFee)
+```
+
+That one word compiles **byte-identical to the deployed [`perpetual`](predicates.md#perpetual)**
+(385 B) — the third on-chain covenant reproduced from a condition. The coin never leaves the
+lock; it moves forward through identical UTXOs, shrinking by the fee each hop, and any spend
+that does not recreate it is refused. And it composes too: `recreate ∧ tx.locktime` is a
+414-byte perpetual that may only advance after a height.
+
+So three of the catalogue's covenants — a timelock, a forced-payment covenant, and a
+self-recreating perpetual — now fall out of one-line expressions, byte for byte, and their
+primitives (`tx.locktime`, `pay`, `recreate`) combine into covenants no one wrote by hand. The
+last rung, **state**: a `recreate` that splices *changed* state into the successor (a counter,
+a status), so a full state machine authors from an expression — the same bridge, one splice
+further on.
 
 ## From the command line
 
