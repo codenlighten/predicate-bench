@@ -11,7 +11,7 @@ let failed = 0
 const ok = (cond, msg) => { console.log(`  ${cond ? 'ok ' : 'FAIL'}  ${msg}`); if (!cond) failed++ }
 
 // the deployed ledger: N=3 buckets 50/30/20, one owner — the accounting example, on chain
-const lg = onchain.readLedger().filter((x) => x.predicate === 'ledger').slice(-1)[0]
+const lg = onchain.requireDeployed('ledger')
 const owner = lg.params.owner
 
 const budget = hl.ledger('DepartmentBudget', {
@@ -56,7 +56,7 @@ try {
 } catch (e) { ok(/at least two accounts/.test(e.message), `too few accounts → “${e.message}”`) }
 
 // ── credential → lifecycle, byte-identical to the deployed certificate ──
-const lc = onchain.readLedger().filter((x) => x.predicate === 'lifecycle')[0]
+const lc = onchain.requireDeployed('lifecycle', { latest: false })
 const cred = hl.credential('Certificate', { genesis: lc.params.genesis, issuer: lc.params.issuer, status: 'ISSUED' })
 console.log('\na credential lowers to the deployed lifecycle certificate:')
 ok(cred.coin.script.toHex() === lc.lockHex, `Certificate → byte-identical to ${lc.txid.slice(0, 12)}…:0 (status ${cred.status})`)
@@ -67,7 +67,7 @@ try { hl.moveStatus('ISSUED', 'SUSPENDED'); ok(false, 'issued→suspended should
 catch (e) { ok(/only ACTIVE or REVOKED/.test(e.message), `issued → suspended → “${e.message}”`) }
 
 // ── capability → delegation, byte-identical to the deployed budget ──
-const dg = onchain.readLedger().filter((x) => x.predicate === 'delegation')[0]
+const dg = onchain.requireDeployed('delegation', { latest: false })
 const cap = hl.capability('SpendAuthority', { root: dg.params.root, budget: dg.params.budget, owner: dg.params.owner })
 console.log('\na capability lowers to the deployed delegation budget:')
 ok(cap.coin.script.toHex() === dg.lockHex, `SpendAuthority → byte-identical to ${dg.txid.slice(0, 12)}…:0 (budget ${cap.budget})`)
@@ -77,7 +77,7 @@ try { hl.delegate(cap, { amount: 999 }); ok(false, 'over-delegation should refus
 catch (e) { ok(/budget of only/.test(e.message), `over-delegate → “${e.message}”`) }
 
 // ── game → turns, byte-identical to the deployed game ──
-const tn = onchain.readLedger().filter((x) => x.predicate === 'turns')[0]
+const tn = onchain.requireDeployed('turns', { latest: false })
 const g = hl.game('TicTacToe', { players: [tn.params.a, tn.params.b], turn: 0, state: Buffer.alloc(32) })
 console.log('\na game lowers to the deployed turn-based coin:')
 ok(g.coin.script.toHex() === tn.lockHex, `TicTacToe → byte-identical to ${tn.txid.slice(0, 12)}…:0 (turn ${g.turn})`)
@@ -86,7 +86,7 @@ try { hl.move(g, { player: 1, state: Buffer.alloc(32, 1) }); ok(false, 'wrong-pl
 catch (e) { ok(/player 1's turn/.test(e.message), `wrong player → “${e.message}”`) }
 
 // ── escrow → htlc, byte-identical to the deployed escrow ──
-const ht = onchain.readLedger().filter((x) => x.predicate === 'htlc')[0]
+const ht = onchain.requireDeployed('htlc', { latest: false })
 const esc = hl.escrow('DeliveryEscrow', { recipient: ht.params.recipient, sender: ht.params.sender, secret: ht.params.secret, notBefore: ht.params.notBefore })
 console.log('\nan escrow lowers to the deployed htlc:')
 ok(esc.coin.script.toHex() === ht.lockHex, `DeliveryEscrow → byte-identical to ${ht.txid.slice(0, 12)}…:0`)
@@ -94,7 +94,7 @@ try { hl.escrow('Bad', { recipient: ht.params.recipient, sender: ht.params.sende
 catch (e) { ok(/needs notBefore/.test(e.message), `missing field → “${e.message}”`) }
 
 // ── stream → journal, byte-identical to the deployed log ──
-const jr = onchain.readLedger().filter((x) => x.predicate === 'journal')[0]
+const jr = onchain.requireDeployed('journal', { latest: false })
 const str = hl.stream('AuditLog', { publisher: jr.params.publisher })
 console.log('\na stream lowers to the deployed journal:')
 ok(str.coin.script.toHex() === jr.lockHex, `AuditLog → byte-identical to ${jr.txid.slice(0, 12)}…:0`)

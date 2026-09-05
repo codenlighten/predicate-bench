@@ -11,9 +11,9 @@ const onchain = require('../src/onchain')
 let failed = 0
 const ok = (cond, msg) => { console.log(`  ${cond ? 'ok ' : 'FAIL'}  ${msg}`); if (!cond) failed++ }
 
-const cv = onchain.readLedger().filter((x) => x.predicate === 'conserve').slice(-1)[0]
-const wt = onchain.readLedger().filter((x) => x.predicate === 'witness').slice(-1)[0]
-const gd = onchain.readLedger().filter((x) => x.predicate === 'guarded').slice(-1)[0]
+const cv = onchain.requireDeployed('conserve')
+const wt = onchain.requireDeployed('witness')
+const gd = onchain.requireDeployed('guarded')
 const genesis = cv.params.genesis
 const owner = cv.params.owner
 
@@ -58,7 +58,7 @@ console.log("\n  A's combined obligation plan (now one covenant):")
 for (const o of g2.objects.A.obligations) console.log(`    · ${o}`)
 
 console.log('\na cross-class composition (conservedPair + journal) lowers to the deployed audited coin:')
-const au = onchain.readLedger().filter((x) => x.predicate === 'audited').slice(-1)[0]
+const au = onchain.requireDeployed('audited')
 const g3 = graphc.compile({ name: 'auditable-treasury', objects: ['A', 'B'], relationships: [
   { type: 'conservedPair', name: 'gt', genesis: au.params.genesis, members: ['A', 'B'],
     memberParams: [{ name: 'A', side: 0, balance: au.params.balance, owner: au.params.owner }, { name: 'B', side: 1, balance: 40, owner: au.params.owner }] },

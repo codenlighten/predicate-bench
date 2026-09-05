@@ -13,7 +13,7 @@ const onchain = require('../src/onchain')
 let failed = 0
 const ok = (cond, msg) => { console.log(`  ${cond ? 'ok ' : 'FAIL'}  ${msg}`); if (!cond) failed++ }
 
-const gd = onchain.readLedger().filter((x) => x.predicate === 'guarded').slice(-1)[0]
+const gd = onchain.requireDeployed('guarded')
 const src = fs.readFileSync(path.join(__dirname, '..', 'graphlang', 'escrowed-treasury.graph'), 'utf8')
 
 const g = graphlang.build(src, {
@@ -32,7 +32,7 @@ ok(g.objects.B.coin && !g.objects.B.composedBy, 'B, in one relationship, lowers 
 ok(g.objects.O.roles.some((r) => r.endsWith(':sibling')), 'O is a passive tagged coin — a sibling')
 
 // a cross-class .graph: conservedPair + journal → the composed audited coin
-const au = onchain.readLedger().filter((x) => x.predicate === 'audited').slice(-1)[0]
+const au = onchain.requireDeployed('audited')
 const asrc = fs.readFileSync(path.join(__dirname, '..', 'graphlang', 'auditable-treasury.graph'), 'utf8')
 const ag = graphlang.build(asrc, { genesis: au.params.genesis, owner: au.params.owner })
 console.log('\na cross-class .graph lowers to the composed audited coin:')

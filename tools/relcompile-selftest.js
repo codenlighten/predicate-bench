@@ -12,7 +12,7 @@ let failed = 0
 const ok = (cond, msg) => { console.log(`  ${cond ? 'ok ' : 'FAIL'}  ${msg}`); if (!cond) failed++ }
 
 // the conserve pair deployed on mainnet (genesis 54c9…), recovered from the ledger
-const deployed = onchain.readLedger().filter((x) => x.predicate === 'conserve').slice(-1)[0]
+const deployed = onchain.requireDeployed('conserve')
 const genesis = deployed.params.genesis
 const owner = deployed.params.owner
 
@@ -43,7 +43,7 @@ ok(out.obligations.some((o) => /companion/.test(o)) &&
 'the plan carries the companion, backtrace, descent, and output-binding obligations')
 
 console.log('\na dependsOn declaration lowers to the deployed witness, byte-for-byte:')
-const wt = onchain.readLedger().filter((x) => x.predicate === 'witness').slice(-1)[0]
+const wt = onchain.requireDeployed('witness')
 const gate = relc.compile({
   name: 'escrow-leg', relationship: 'dependsOn',
   beneficiary: wt.params.beneficiary, sibling: wt.params.sibling, requiredFlag: wt.params.requiredFlag
@@ -53,7 +53,7 @@ ok(gate.coins[0].script.toHex() === wt.lockHex,
   `witness is byte-identical to the deployed ${wt.txid.slice(0, 12)}…:${wt.vout} (${gate.coins[0].script.toBuffer().length} B)`)
 
 console.log('\na conservedGroup lowers to the deployed N-body pool, byte-for-byte:')
-const pl = onchain.readLedger().filter((x) => x.predicate === 'pool').slice(-1)[0]
+const pl = onchain.requireDeployed('pool')
 const N = pl.params.N
 const group = relc.compile({
   name: 'treasury-N', relationship: 'conservedGroup', genesis: pl.params.genesis,

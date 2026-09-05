@@ -17,6 +17,23 @@ function readLedger () {
   return fs.existsSync(LEDGER) ? JSON.parse(fs.readFileSync(LEDGER, 'utf8')) : []
 }
 
+// Return one deployed record by predicate name, or fail with an actionable message
+// instead of a raw `undefined.params` crash. The mainnet receipts (deployments.json)
+// are committed to the repo, so a fresh clone finds them; this only bites if the file
+// was deleted or a family was never deployed.
+function requireDeployed (name, { latest = true } = {}) {
+  const matches = readLedger().filter((x) => x.predicate === name)
+  const rec = latest ? matches[matches.length - 1] : matches[0]
+  if (!rec) {
+    throw new Error(
+      `deployments.json has no '${name}' record. The mainnet receipts are committed to ` +
+      `the repo — restore them with \`git checkout -- deployments.json\`, or redeploy the ` +
+      `family with its scripts/deploy-*.js.`
+    )
+  }
+  return rec
+}
+
 function appendLedger (entry) {
   const all = readLedger()
   all.push(entry)
@@ -276,4 +293,4 @@ function publicResult (r) {
   return rest
 }
 
-module.exports = { deploy, unlock, readLedger, appendLedger, loadPredicate, LEDGER }
+module.exports = { deploy, unlock, readLedger, requireDeployed, appendLedger, loadPredicate, LEDGER }

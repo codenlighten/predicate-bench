@@ -13,7 +13,7 @@ const onchain = require('../src/onchain')
 let failed = 0
 const ok = (cond, msg) => { console.log(`  ${cond ? 'ok ' : 'FAIL'}  ${msg}`); if (!cond) failed++ }
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', 'rellang', f), 'utf8')
-const deployed = (name) => onchain.readLedger().filter((x) => x.predicate === name).slice(-1)[0]
+const deployed = (name) => onchain.requireDeployed(name)
 
 console.log('a .rel protocol compiles to the deployed coins, byte-for-byte:')
 
