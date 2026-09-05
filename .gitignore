@@ -1,0 +1,9 @@
+node_modules/
+.wallet.json
+deployments.json
+.wallet.spent.json
+.wallet.utxos.json
+.wallet.title.json
+.wallet.creator.json
+.wallet.carol.json
+scratchpad/

@@ -1,0 +1,15 @@
+predicate metered {
+  state $state
+  branch raw {
+    if {
+      metered-read-counter-keep head=4 counter=4
+      metered-guard-below max=$maxHops
+      metered-increment-recreate counter=4 fee=$hopFee
+    }
+    else {
+      metered-read-counter-drop head=4 counter=4
+      metered-guard-at-least max=$maxHops
+      metered-pay-fixed address=$settle fee=$hopFee
+    }
+  }
+}

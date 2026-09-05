@@ -1,0 +1,18 @@
+predicate vesting {
+  branch asm given(bsig, bpub, preimage) {
+    if {
+      vest-gate benPKH=$benPKH
+      vest-read-value-park-chunk
+      vest-compute-unvested total=$total start=$start end=$end
+      vest-guard-vesting dust=$dust
+      vest-pay-withdraw benPKH=$benPKH fee=$fee
+    }
+    else {
+      vest-gate benPKH=$benPKH
+      vest-read-value-only
+      vest-compute-unvested total=$total start=$start end=$end
+      vest-guard-vested dust=$dust
+      vest-pay-finish benPKH=$benPKH fee=$fee
+    }
+  }
+}

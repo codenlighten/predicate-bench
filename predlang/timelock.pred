@@ -1,0 +1,6 @@
+predicate timelock {
+  authenticate
+  timelock-seq-non-final
+  timelock-at-least floor=$notBefore
+  finish
+}

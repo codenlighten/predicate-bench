@@ -1,0 +1,36 @@
+predicate asset {
+  state $state
+  dispatch {
+    case 3 given(outsBlob, myIndex, newOwner, sig, pubkey) {
+      asset-extract-state
+      asset-stride
+      asset-require-owner-sig
+      asset-swap-pin
+      tok-finish-branch
+    }
+    case 2 given(lt4, iblob, outsBlob, sibOwner, sibBal8, sibling, newOwner, sig, pubkey) {
+      asset-extract-state
+      asset-stride
+      asset-require-owner-sig
+      asset-merge-conserve
+      asset-merge-vector
+      asset-merge-sib-slice
+      asset-verify-funding
+      asset-bind-merge-output
+      tok-finish-branch
+    }
+    case 1 given(ownerA, ownerB, balA8, balB8, sig, pubkey) {
+      asset-extract-state
+      asset-require-owner-sig
+      asset-split-conserve
+      asset-split-outputs
+      tok-finish-branch
+    }
+    case 0 given(newOwner, sig, pubkey) {
+      asset-extract-state
+      asset-require-owner-sig
+      asset-transfer-successor
+      tok-finish-branch
+    }
+  }
+}

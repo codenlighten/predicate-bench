@@ -1,0 +1,6 @@
+// A release gated on a named coin being co-spent while it carries the flag.
+relationship escrow-leg dependsOn {
+  beneficiary  $beneficiary
+  sibling      $sibling
+  require-flag  1
+}

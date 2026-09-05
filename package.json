@@ -1,0 +1,43 @@
+{
+  "name": "original-smart-contract-ideation",
+  "version": "1.0.0",
+  "description": "A bench for writing custom BSV locking scripts and proving them against the real consensus interpreter before they touch the chain.",
+  "main": "src/harness.js",
+  "scripts": {
+    "test": "node test.js && node tools/trace-selftest.js && node tools/nonce-selftest.js && node tools/token-merge-analysis.js && node tools/compile-selftest.js && node tools/predlang-selftest.js && node tools/tslang-selftest.js && node tools/statelayout-selftest.js && node tools/manypositions-selftest.js && node tools/highlevel-selftest.js && node tools/relational-selftest.js && node tools/relcompile-selftest.js && node tools/rellang-selftest.js && node tools/opcodes-selftest.js && node tools/compose-selftest.js && node tools/relgraph-selftest.js && node tools/graphlang-selftest.js && node tools/anchors.js && node tools/audit.js",
+    "cli": "node bin/cli.js",
+    "probe": "node bin/probe.js",
+    "check:docs": "node tools/anchors.js",
+    "fix:docs": "node tools/anchors.js --fix",
+    "verify:chain": "node tools/verify-chain.js",
+    "audit": "node tools/audit.js",
+    "fix:audit": "node tools/audit.js --fix",
+    "selftest:trace": "node tools/trace-selftest.js",
+    "selftest:nonce": "node tools/nonce-selftest.js",
+    "analysis:merge": "node tools/token-merge-analysis.js",
+    "selftest:compile": "node tools/compile-selftest.js",
+    "selftest:predlang": "node tools/predlang-selftest.js",
+    "selftest:statelayout": "node tools/statelayout-selftest.js",
+    "selftest:relational": "node tools/relational-selftest.js",
+    "selftest:relcompile": "node tools/relcompile-selftest.js",
+    "selftest:rellang": "node tools/rellang-selftest.js",
+    "selftest:relgraph": "node tools/relgraph-selftest.js",
+    "selftest:graphlang": "node tools/graphlang-selftest.js",
+    "selftest:compose": "node tools/compose-selftest.js",
+    "selftest:tslang": "node tools/tslang-selftest.js",
+    "selftest:highlevel": "node tools/highlevel-selftest.js",
+    "selftest:opcodes": "node tools/opcodes-selftest.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@smartledger/bsv": "^9.6.0"
+  },
+  "bin": {
+    "sci": "bin/cli.js"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

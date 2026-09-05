@@ -1,0 +1,21 @@
+// A treasury pair (A conservesWith B) that can only rebalance while an oracle coin O
+// is co-spent carrying the required flag (A dependsOn O). A stands in BOTH relationships,
+// so the graph compiler emits the composed `guarded` coin for it.
+graph escrowed-treasury {
+  object A
+  object B
+  object O
+
+  conservedPair treasury {
+    genesis $genesis
+    member A side 0 balance 60 owner $owner
+    member B side 1 balance 40 owner $owner
+  }
+
+  dependsOn armed {
+    gate A
+    sibling O
+    oracle $oracle
+    require-flag 1
+  }
+}

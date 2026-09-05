@@ -1,0 +1,8 @@
+// Asks for a bounded total but its lowering omits the descent proof.
+// A counterfeit sibling could inflate it — so this must NOT compile.
+relationship naive-pair conservedPair {
+  genesis $genesis
+  member side 0 balance 60 owner $owner
+  member side 1 balance 40 owner $owner
+  proofs coSpend backtrace
+}

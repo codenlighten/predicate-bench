@@ -1,0 +1,20 @@
+predicate token {
+  state $state
+  branch asm {
+    if given(lt4, iblob, outsBlob, sibBal8, sibling, preimage) self-terminating {
+      tok-merge-read-self
+      tok-merge-conserve
+      tok-verify-sibling-vector
+      tok-verify-sib-slice
+      tok-verify-funding
+      tok-bind-merge-output
+      tok-finish-branch
+    }
+    else given(balA8, balB8, preimage) self-terminating {
+      tok-split-read-self
+      tok-split-conserve
+      tok-bind-split-outputs
+      tok-finish-branch
+    }
+  }
+}

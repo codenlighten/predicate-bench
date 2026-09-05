@@ -1,0 +1,30 @@
+predicate sovereign {
+  state $state
+  dispatch {
+    case 2 given(sibIblob, sibLt, sibOutsBlob, sibVout, sibling, raw1, iblob2, lt2, parentOutsBlob, newOwner, sig, pubkey) {
+      sov-extract-state
+      sov-require-owner-sig
+      sov-new-owner-check
+      sov-merge-vector
+      sov-merge-sibling-backtrace
+      sov-merge-conserve
+      sov-descent
+      tok-finish-branch
+    }
+    case 1 given(raw1, iblob2, lt2, parentOutsBlob, ownerA, ownerB, balA8, balB8, sig, pubkey) {
+      sov-extract-state
+      sov-require-owner-sig
+      sov-split-conserve
+      sov-split-outputs
+      sov-descent
+      tok-finish-branch
+    }
+    case 0 given(raw1, iblob2, lt2, parentOutsBlob, newOwner, sig, pubkey) {
+      sov-extract-state
+      sov-require-owner-sig
+      sov-transfer-successor
+      sov-descent
+      tok-finish-branch
+    }
+  }
+}

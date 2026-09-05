@@ -1,0 +1,5 @@
+predicate perpetual terminates fee-exhaustion {
+  authenticate
+  assert-sighash-all
+  recreate-self-minus-fee fee=$fee
+}

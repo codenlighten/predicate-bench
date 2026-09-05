@@ -1,0 +1,5 @@
+predicate covenant {
+  authenticate
+  require-outputs expected=$expected
+  finish
+}

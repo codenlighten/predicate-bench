@@ -1,0 +1,12 @@
+predicate provenance {
+  state $state
+  preamble authenticate
+  body asm given(raw1, iblob2, lt2, parentOwner, newOwner, sig, pubkey, preimage) self-terminating {
+    prov-read-self
+    prov-authorise
+    prov-successor
+    descent-read-parent
+    prov-genesis-or-parent
+    tok-finish-branch
+  }
+}

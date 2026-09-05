@@ -1,0 +1,11 @@
+predicate lineage {
+  state $state
+  preamble authenticate
+  body asm given(raw1, iblob2, lt2, preimage) self-terminating {
+    lin-read-self
+    lin-successor
+    descent-read-parent
+    lin-genesis-or-parent
+    tok-finish-branch
+  }
+}

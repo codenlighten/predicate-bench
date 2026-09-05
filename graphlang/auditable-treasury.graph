@@ -1,0 +1,18 @@
+// A conserved treasury pair (A conservesWith B) whose every rebalance is appended to
+// A's audit chain. A is in a relational AND a temporal relationship, so it lowers to
+// the composed `audited` covenant — conserve ∧ journal.
+graph auditable-treasury {
+  object A
+  object B
+
+  conservedPair treasury {
+    genesis $genesis
+    member A side 0 balance 60 owner $owner
+    member B side 1 balance 40 owner $owner
+  }
+
+  journal audit {
+    logs A
+    seq  0
+  }
+}
