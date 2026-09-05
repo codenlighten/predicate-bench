@@ -14,10 +14,13 @@ These round out what already exists and should land before the larger platforms 
   not just reproduce curated covenants. Ownership authors from a condition
   (**`checkSig(sig, pubkey)`** over the spending context — a real P2PKH in two lines), and
   **compile-time-bounded loops** unroll to Script (a real Merkle membership proof authors from
-  `for i in 3 { … if(dir[i], …) … }`, 97 B). Extend the surface, keeping the real-interpreter,
-  refusal-first bar: **named structs** over the existing fixed-width fields (field names, not
-  positions). A real TypeScript-AST front end (the `typescript` package) is the eventual
-  upgrade for a richer subset; the hand-written parser is the deliberate, zero-dependency start.
+  `for i in 3 { … if(dir[i], …) … }`, 97 B). And the **covenant frontier is open**: a `tx.<field>`
+  read constrains the spending transaction itself — `assert(tx.locktime >= this.notBefore)`
+  authors a timelock **byte-identical to the deployed covenant** (the preimage bound, the
+  sequence guard auto-injected). Extend it, keeping the real-interpreter, refusal-first bar:
+  more context fields (`tx.value`), then **output binding + self-recreation** so a *stateful*
+  covenant authors from an expression, and **named structs** over the fixed-width fields. A real
+  TypeScript-AST front end is the eventual upgrade; the hand-written parser is the deliberate start.
 - **More domain builders** (`src/highlevel.js`) — `escrow()` (→ [witness](predicates.md#witness)/htlc),
   `stream()` (→ [journal](predicates.md#journal)), `treasury()` (→ [pool](predicates.md#pool)/[ledger](predicates.md#ledger)),
   `asset()` (→ [asset](predicates.md#asset)). Same shape as the four that exist: business

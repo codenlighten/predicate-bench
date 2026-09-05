@@ -1,0 +1,7 @@
+# A timelock, authored as a condition on the spending transaction itself: this coin is
+# spendable no earlier than a block height (or time) `notBefore`. Reading tx.locktime makes
+# it a covenant — the preimage is bound (OP_PUSH_TX) and the input is required non-final, or
+# nLockTime would be inert. This compiles BYTE-IDENTICAL to the deployed `timelock` covenant.
+#   sci deploy examples/timelock.expr notBefore=964000
+#   sci unlock <txid> at=964000        # (spend at/after notBefore; a non-final input)
+assert(tx.locktime >= this.notBefore)

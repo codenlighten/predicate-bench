@@ -30,9 +30,19 @@
 const bsv = require('@smartledger/bsv')
 const helpers = require('@smartledger/bsv/lib/covenant/helpers')
 const { StackAsm } = require('./stackasm')
+const C = require('./clauses')
 const Opcode = bsv.Opcode
 const Script = bsv.Script
 const n = helpers.scriptNum
+
+// Read-only spending-context fields, by name. Each reads a field from the authenticated
+// BIP-143 preimage and leaves it as an unsigned number — the same field-read the proven
+// clauses use (bytes `len` from `fromEnd`, append 0x00, OP_BIN2NUM), so the sign handling is
+// exactly the one already deployed. `guardsSequence` fields make nLockTime meaningful only
+// with a non-final input, so reading one auto-injects the sequence guard (pitfall 27).
+const CTX = {
+  locktime: { fromEnd: 8, len: 4, guardsSequence: true }
+}
 
 // ---- tokenizer ------------------------------------------------------------------------
 const TWO = ['==', '!=', '<=', '>=', '&&', '||', '++']
@@ -96,8 +106,9 @@ function parser (toks) {
         eat(')'); return { k: 'call', fn: t.v, args }
       }
       let node = t.v.startsWith('this.') ? { k: 'param', name: t.v.slice(5) }
-        : (t.v.includes('.') ? (() => { throw new Error(`expr: '${t.v}' — only this.<name> may use a dot`) })()
-          : { k: 'var', name: t.v })
+        : t.v.startsWith('tx.') ? { k: 'ctx', field: t.v.slice(3) }
+          : (t.v.includes('.') ? (() => { throw new Error(`expr: '${t.v}' — only this.<name> and tx.<field> may use a dot`) })()
+            : { k: 'var', name: t.v })
       if (is('[')) { next(); const idx = or(); eat(']'); node = { k: 'index', base: node, idx } }   // arr[i]
       return node
     }
@@ -245,6 +256,18 @@ function emit (node, asm, env) {
       if (node.base.k === 'var') { asm.pick(node.base.name + i, lbl()); return }    // witness array sib[i] -> sibI
       throw new Error('expr: only a witness or this.<name> may be indexed')
     }
+    case 'ctx': {
+      const spec = CTX[node.field]
+      if (!spec) throw new Error(`expr: unknown context field 'tx.${node.field}' (have: ${Object.keys(CTX).map((f) => 'tx.' + f).join(', ')})`)
+      // bytes[len from fromEnd] of the authenticated preimage, read unsigned (append 0x00,
+      // OP_BIN2NUM) — exactly the deployed field-read. The preimage copy is consumed; the
+      // authenticated preimage underneath is preserved for the next read.
+      asm.pick('preimage', lbl())
+      asm.num(spec.fromEnd, lbl()); asm.op('OP_RIGHT', 2, [lbl()])
+      asm.num(spec.len, lbl()); asm.op('OP_LEFT', 2, [lbl()])
+      asm.data(Buffer.from([0]), lbl()); asm.cat(lbl()); asm.bin2num(lbl())
+      return
+    }
     case 'not': emit(node.a, asm, env); asm.op('OP_NOT', 1, [lbl()]); return
     case 'bin': emit(node.l, asm, env); emit(node.r, asm, env); BIN[node.op](asm, lbl()); return
     case 'cond': {                                         // if(c, a, b) -> OP_IF a OP_ELSE b OP_ENDIF
@@ -310,9 +333,17 @@ function compile (source) {
   const scalars = new Set(givenDecls.filter((d) => d.size === undefined).map((d) => d.name))
   const arrays = new Map(givenDecls.filter((d) => d.size !== undefined).map((d) => [d.name, d.size]))
   const known = new Set(scalars)
+  const ctxInfo = { used: false, guardsSequence: false }
   const vExpr = (node) => {
     switch (node.k) {
       case 'num': case 'hex': case 'param': return
+      case 'ctx': {
+        const spec = CTX[node.field]
+        if (!spec) throw new Error(`expr: unknown context field 'tx.${node.field}' (have: ${Object.keys(CTX).map((f) => 'tx.' + f).join(', ')})`)
+        ctxInfo.used = true
+        if (spec.guardsSequence) ctxInfo.guardsSequence = true
+        return
+      }
       case 'var': if (!known.has(node.name)) throw new Error(`expr: '${node.name}' is not a declared witness or variable`); return
       case 'index':
         if (node.base.k === 'param') { vExpr(node.idx); return }
@@ -343,14 +374,35 @@ function compile (source) {
   }
   vStmts(stmts)
 
-  return {
+  // A predicate that reads the spending context is a covenant: its only witness is the
+  // authenticated preimage, which the unlock synthesises (OP_PUSH_TX). Mixing it with a
+  // user witness stack is a real design (preimage + witness together), but a subtle one —
+  // kept out of v1 so the sound path stays simple.
+  const usesContext = ctxInfo.used
+  if (usesContext && flat.length) throw new Error('expr: a predicate that reads tx.<field> cannot also declare a witness (given ...) yet')
+
+  const predicate = {
     name: 'expr',
     given: flat,
     givenDecls,
     source,
     stmts,
+    usesContext,
     lock (params = {}) {
       const s = new Script()
+      if (usesContext) {
+        // The preimage is the sole stack item the unlock pushed. Bind it to this spend
+        // (OP_PUSH_TX), then — because nLockTime is inert on a final input — require the
+        // input non-final, then run the context logic, then drop the preimage and succeed.
+        const asm = new StackAsm(s).given(['preimage'])
+        C.authenticate(asm.s)                              // net-neutral: [preimage] -> [preimage]
+        if (ctxInfo.guardsSequence) C.requireSequenceNonFinal(asm.s)
+        const env = { params, arrays, loop: {}, ctr: { n: 0 } }
+        for (const st of stmts) execStmt(st, asm, env)
+        asm.drop()                                         // drop the preimage
+        asm.raw(Opcode.OP_1, 0, ['true'])
+        return s
+      }
       const asm = new StackAsm(s).given(flat.slice())
       const env = { params, arrays, loop: {}, ctr: { n: 0 } }
       for (const st of stmts) execStmt(st, asm, env)
@@ -360,6 +412,15 @@ function compile (source) {
     },
     unlock (ctx = {}) {
       const s = new Script()
+      if (usesContext) {
+        // The witness is the BIP-143 preimage of THIS spend. OP_PUSH_TX needs a preimage whose
+        // in-script signature is clean low-S, so grind a malleable field. The input is non-final
+        // (unlockDefaults), so grindPreimage grinds the sequence and pins nLockTime — to `at`,
+        // or this.notBefore, or 0. Passing an `at` below the floor is how a too-early spend is
+        // tested (the script then refuses it).
+        const pin = ctx.at ?? ctx.notBefore ?? 0
+        return s.add(C.grindPreimage(ctx.tx, ctx.inputIndex, ctx.lockingScript, ctx.satoshis, pin, ctx.sighashType))
+      }
       const push = (v, name) => {
         if (v === undefined) throw new Error(`expr: unlock is missing witness '${name}'`)
         if (v instanceof bsv.PrivateKey) {
@@ -382,6 +443,9 @@ function compile (source) {
       return s
     }
   }
+  // A context predicate must be spent by a non-final input, or its nLockTime check is inert.
+  if (usesContext && ctxInfo.guardsSequence) predicate.unlockDefaults = { sequenceNumber: 0xfffffffe }
+  return predicate
 }
 
 module.exports = { compile, tokenize, parse: (src) => parser(tokenize(src)) }

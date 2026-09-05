@@ -88,6 +88,32 @@ interpreter accepts for a genuine member and refuses for a forged leaf or a tamp
 The bound must resolve to a constant — a number or a baked `this.N` — so the script size is
 fixed and knowable, never spender-controlled.
 
+## Reading the spending context — a covenant from a condition
+
+The expressions so far constrain a *witness*. A `tx.<field>` read constrains the *spending
+transaction itself* — which makes the predicate a covenant. Today `tx.locktime` is exposed:
+
+```
+assert(tx.locktime >= this.notBefore)
+```
+
+Reading `tx.locktime` turns the predicate into one: the compiler binds the BIP-143 preimage to
+this spend (OP_PUSH_TX), reads the field unsigned exactly as the deployed clauses do, and —
+because nLockTime is inert on a final input — **auto-injects the non-final-sequence guard**
+([pitfall 27](pitfalls.md); you cannot forget it). The unlocking script synthesises the
+preimage, grinding a field until its in-script signature is clean low-S.
+
+The striking part: that one line compiles **byte-identical to the hand-tuned
+[`timelock`](predicates.md#timelock) covenant already deployed and spent on mainnet** (372 B).
+The expression compiler did not approximate a timelock — it reproduced the exact on-chain one
+from a condition, so it inherits that covenant's soundness and its refusals: a too-early spend
+and a final-sequence spend are both rejected by the real interpreter.
+
+This is the first rung of the covenant frontier. The next rungs — more context fields
+(`tx.value`), then output binding and self-recreation, so a *stateful* covenant authors from an
+expression — build on the same preimage bridge, each held to the same real-interpreter,
+refusal-first bar.
+
 ## From the command line
 
 A predicate authored from an expression is a first-class citizen of the CLI. Write it in a

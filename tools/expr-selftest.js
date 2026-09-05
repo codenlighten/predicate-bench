@@ -118,6 +118,24 @@ predicate('!(a == b)', 'given a b\nassert(!(a == b))', [
   ])
 }
 
+// a COVENANT that reads the spending context: a timelock authored from an expression. The
+// preimage is bound (OP_PUSH_TX), the input is required non-final (auto), and nLockTime is
+// read unsigned and compared to the floor — the same soundness as the deployed `timelock`.
+{
+  const NB = 964000
+  predicate('timelock (reads the spend): tx.locktime >= this.notBefore', 'assert(tx.locktime >= this.notBefore)', [
+    { notBefore: NB, at: NB },
+    { notBefore: NB, at: NB + 500 },
+    { notBefore: NB, at: NB - 1, shouldFail: true },                        // too early
+    { notBefore: NB, at: NB, sequenceNumber: 0xffffffff, shouldFail: true } // final input: nLockTime inert
+  ])
+  // …and it doesn't just behave like the deployed timelock — it IS it, byte for byte. The
+  // expression reproduces the hand-tuned covenant already deployed and spent on mainnet.
+  const tl = require('../src/predicates/timelock')
+  ok(expr.compile('assert(tx.locktime >= this.notBefore)').lock({ notBefore: NB }).toHex() === tl.lock({ notBefore: NB }).toHex(),
+    'tx.locktime >= this.notBefore → BYTE-IDENTICAL to the deployed timelock covenant (372 B, already on mainnet)')
+}
+
 // m-of-n multisig: a threshold of signatures, checked in pubkey order (NULLDUMMY dummy)
 {
   const keys = [0, 1, 2].map(() => bsv.PrivateKey.fromRandom())
