@@ -1,4 +1,6 @@
-# Smart contract ideation
+# Predicate Bench
+
+*A mainnet-proven laboratory and compiler for Bitcoin (BSV) Script predicates.*
 
 A bench for writing custom Bitcoin SV locking scripts and proving them before
 they touch the chain.

@@ -1,5 +1,5 @@
 {
-  "name": "original-smart-contract-ideation",
+  "name": "predicate-bench",
   "version": "1.0.0",
   "description": "A bench for writing custom BSV locking scripts and proving them against the real consensus interpreter before they touch the chain.",
   "main": "src/harness.js",
