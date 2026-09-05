@@ -6,6 +6,8 @@ const delegationPred = require('./predicates/delegation')
 const turnsPred = require('./predicates/turns')
 const htlcPred = require('./predicates/htlc')
 const journalPred = require('./predicates/journal')
+const poolPred = require('./predicates/pool')
+const assetPred = require('./predicates/asset')
 const marketPred = require('./predicates/market')
 const marketNPred = require('./predicates/marketN')
 const marketScalarPred = require('./predicates/marketScalar')
@@ -464,8 +466,86 @@ function settlePosition (positionObj, { outcome }) {
   return { outcome: o === 1 ? 'YES' : 'NO', winner: won ? 'the owner' : 'the counterparty', note: `the market resolved ${o === 1 ? 'YES' : 'NO'}; this ${positionObj.side} position pays ${won ? 'the owner (they called it right)' : 'the counterparty'}` }
 }
 
+// ── treasury: N accounts whose balances always sum to a constant ──────────────────────
+// lowers to the `pool` predicate — conserve for N bodies. Like `ledger`, but without the
+// per-account audit chain: a plain conserved treasury, rebalanced atomically. The
+// vocabulary is a genesis and a set of named accounts; the compiler owns the conservation
+// law, the descent-from-genesis check, and the all-move-together rule.
+function treasuryGuarantees (spec) {
+  const total = spec.accounts.reduce((s, a) => s + a.balance, 0)
+  return [
+    `the ${spec.accounts.length} balances always sum to ${total} — a rebalance moves value between accounts but can never create or destroy it`,
+    'an account can be moved only by its own owner (a signature is required)',
+    'no counterfeit account can enter circulation — each descends from the one genesis',
+    'the whole group must move together — a rebalance that leaves an account behind is rejected'
+  ]
+}
+// friendly, business-level validation — the same "teaches while it protects" bar as ledger.
+function checkTreasury (name, spec) {
+  const p = []
+  if (!spec || !Array.isArray(spec.accounts) || spec.accounts.length < 2) {
+    p.push(`a treasury needs at least two accounts (got ${spec && spec.accounts ? spec.accounts.length : 0})`)
+    return p
+  }
+  if (spec.accounts.length > 16) p.push(`a treasury supports up to 16 accounts (got ${spec.accounts.length})`)
+  if (!spec.genesis) p.push('the treasury needs a genesis outpoint (the unique origin every account descends from)')
+  spec.accounts.forEach((a, i) => {
+    if (!a.name) p.push(`account #${i} has no name`)
+    if (!Number.isInteger(a.balance) || a.balance < 0) p.push(`account '${a.name || i}' needs a whole, non-negative balance`)
+    if (!a.owner) p.push(`account '${a.name || i}' has no owner — who is allowed to move its funds?`)
+  })
+  const names = spec.accounts.map((a) => a.name)
+  if (new Set(names).size !== names.length) p.push('two accounts share a name — each account needs a distinct name')
+  if (spec.total !== undefined) {
+    const t = spec.accounts.reduce((s, a) => s + (a.balance || 0), 0)
+    if (t !== spec.total) p.push(`the accounts add up to ${t}, but you declared the total as ${spec.total} — these must match`)
+  }
+  return p
+}
+/**
+ * Compile a conserved treasury to Bitcoin. Returns { name, predicate:'pool', total,
+ * accounts, coins:[{account,index,balance,owner,script}], guarantees:[…] }. Each owner may
+ * be a P2PKH address or a 20-byte pubkey-hash hex. Throws a plain-English Error (with
+ * .problems) if the rules don't add up.
+ */
+function treasury (name, spec) {
+  const problems = checkTreasury(name, spec)
+  if (problems.length) { const e = new Error(`${name}: ${problems[0]}`); e.problems = problems; throw e }
+  const N = spec.accounts.length
+  const coins = spec.accounts.map((a, i) => ({
+    account: a.name, index: i, balance: a.balance, owner: a.owner,
+    script: poolPred.buildScript({ genesis: spec.genesis, index: i, balance: a.balance, owner: a.owner, N })
+  }))
+  return { name, predicate: 'pool', total: spec.accounts.reduce((s, a) => s + a.balance, 0), accounts: spec.accounts, coins, guarantees: treasuryGuarantees(spec) }
+}
+
+// ── asset: an owned fungible token ────────────────────────────────────────────────────
+// lowers to the `asset` predicate. The vocabulary is an owner and an amount; the compiler
+// owns the four operations (transfer, split, merge, atomic swap), each owner-signed, with
+// value conserved across every split and merge and a merge proving its sibling is real.
+function assetGuarantees () {
+  return [
+    'only the current owner can move the token (a signature is required)',
+    'the owner can transfer the whole token, split it in two, merge two into one, or swap it atomically for another',
+    'value is conserved across every split and merge — the parts always sum to the whole',
+    'no counterfeit can appear — a merge proves its sibling actually exists on chain'
+  ]
+}
+/**
+ * Compile an owned fungible token to Bitcoin. spec: { owner, balance } — owner is the
+ * P2PKH address that holds it. Returns { name, predicate:'asset', coin:{script}, guarantees }.
+ */
+function asset (name, spec) {
+  if (spec == null || !spec.owner) throw new Error(`${name}: a token needs an owner (the address that holds it)`)
+  if (!Number.isInteger(spec.balance) || spec.balance < 0) throw new Error(`${name}: a token needs a whole, non-negative balance`)
+  const script = assetPred.buildScript({ owner: spec.owner, balance: spec.balance })
+  return { name, predicate: 'asset', coin: { script }, guarantees: assetGuarantees() }
+}
+
 module.exports = {
   ledger, transfer, checkLedger, ledgerGuarantees,
+  treasury, checkTreasury, treasuryGuarantees,
+  asset, assetGuarantees,
   credential, moveStatus, credentialGuarantees, STATUS,
   capability, delegate, capabilityGuarantees,
   game, move, gameGuarantees,

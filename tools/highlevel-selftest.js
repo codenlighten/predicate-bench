@@ -101,6 +101,42 @@ ok(str.coin.script.toHex() === jr.lockHex, `AuditLog → byte-identical to ${jr.
 const ap = hl.append(str, { seq: 0, head: undefined, recordHash: Buffer.alloc(32, 0xaa) })
 ok(ap.nextSeq === 1 && Buffer.isBuffer(ap.nextHead), `append: seq 0 → 1, head folds in the record`)
 
+// ── treasury → pool, byte-identical to the deployed conserved treasury ──
+const pl = onchain.requireDeployed('pool')
+const treas = hl.treasury('DepartmentTreasury', {
+  genesis: pl.params.genesis,
+  accounts: [
+    { name: 'operations', balance: pl.params.balance, owner: pl.params.owner },
+    { name: 'research', balance: 30, owner: pl.params.owner },
+    { name: 'marketing', balance: 20, owner: pl.params.owner }
+  ]
+})
+console.log('\na conserved treasury lowers to the deployed pool coin:')
+ok(treas.predicate === 'pool' && treas.coins[0].script.toHex() === pl.lockHex,
+  `DepartmentTreasury account 0 → byte-identical to ${pl.txid.slice(0, 12)}…:${pl.vout} (${treas.coins[0].script.toBuffer().length} B)`)
+ok(treas.total === pl.params.balance + 50, `the ${treas.accounts.length} balances sum to ${treas.total} — a rebalance can never change it`)
+try { hl.treasury('Bad', { genesis: pl.params.genesis, accounts: [{ name: 'solo', balance: 100, owner: pl.params.owner }] }); ok(false, 'a one-account treasury should refuse') }
+catch (e) { ok(/at least two accounts/.test(e.message), `too few accounts → “${e.message}”`) }
+try { hl.treasury('Bad2', { genesis: pl.params.genesis, total: 99, accounts: [{ name: 'a', balance: 50, owner: pl.params.owner }, { name: 'b', balance: 30, owner: pl.params.owner }] }); ok(false, 'a mismatched total should refuse') }
+catch (e) { ok(/add up to 80.*total as 99/.test(e.message), `wrong total → “${e.message}”`) }
+
+// ── asset → asset, byte-identical to the current asset predicate ──
+// NOTE: the asset predicate gained its atomic-swap branch (+141 B) after the deployed
+// receipts (860 B) were spent, so the builder is checked against the *current* predicate,
+// not the stale on-chain bytes. `npm run check:rebuild` tracks this drift; asset is one of
+// five predicates whose deployment predates the current code.
+const assetPred = require('../src/predicates/asset')
+const at = onchain.requireDeployed('asset')
+const tok = hl.asset('LoyaltyPoints', { owner: at.params.owner, balance: at.params.balance })
+const wantAsset = assetPred.buildScript({ owner: at.params.owner, balance: at.params.balance })
+console.log('\nan owned token lowers to the asset predicate:')
+ok(tok.predicate === 'asset' && tok.coin.script.toHex() === wantAsset.toHex(),
+  `LoyaltyPoints → byte-identical to the asset predicate (${tok.coin.script.toBuffer().length} B, balance ${at.params.balance})`)
+try { hl.asset('Bad', { owner: at.params.owner, balance: -1 }); ok(false, 'a negative balance should refuse') }
+catch (e) { ok(/non-negative/.test(e.message), `negative balance → “${e.message}”`) }
+try { hl.asset('Bad2', { balance: 100 }); ok(false, 'a token with no owner should refuse') }
+catch (e) { ok(/needs an owner/.test(e.message), `missing owner → “${e.message}”`) }
+
 // ── predictionMarket → market, byte-identical to the predicate (not yet deployed) ──
 const marketPred = require('../src/predicates/market')
 const bsv = require('@smartledger/bsv')
@@ -156,5 +192,5 @@ try { hl.writePosition(pmkt, { side: 'yes', owner: pOwner }); ok(false, 'a posit
 
 console.log(failed
   ? `\n${failed} failing`
-  : '\nthe high-level API holds: eight domain builders — business rules in, deployed bytes out')
+  : '\nthe high-level API holds: ten domain builders — business rules in, deployed bytes out')
 process.exit(failed ? 1 : 0)
