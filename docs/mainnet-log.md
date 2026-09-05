@@ -6,15 +6,16 @@
 > documented txid is otherwise just a claim.
 >
 > ```
-> checked            28
-> reproduced exactly 6
-> earlier generation 22   (expected: the core was hoisted and trimmed)
-> stranded           2   (script-valid, refused by policy, unspendable)
-> ledger disagrees   0
-> not on chain       0
+> checked            116
+> reproduced exactly 73
+> earlier generation 37   (expected: the core was hoisted and trimmed)
+> unbuildable         6   (stateful covenants params alone don't reconstruct)
+> stranded            2   (script-valid, refused by policy, unspendable)
+> ledger disagrees    0
+> not on chain        0
 > ```
 >
-> The 22 "earlier generation" entries are the size history, visible in the chain
+> The 37 "earlier generation" entries are the size history, visible in the chain
 > itself: registry 979 → 592 → 554 B, perpetual 423 → 385 B, timelock 409 → 372 B.
 > They are not failures — anything deployed before the preamble was hoisted and
 > the core trimmed is *expected* to differ. What matters is that the difference
@@ -25,6 +26,30 @@ BSV mainnet with real satoshis. Local verification is necessary and not
 sufficient — two of the entries below only failed once they met a node.
 
 Funding wallet: `1PZBjMiVngoEhvffs7k5Rgysw4yAZVspcS`
+
+## redeployed to current code
+
+Five predicates were improved *after* their first deployment: the two-branch sizing
+optimisation shrank [`metered`](predicates.md#metered), [`titled`](predicates.md#titled)
+and [`royalty`](predicates.md#royalty) by 425 B each and [`covenant`](predicates.md#covenant)
+by 38 B, and [`asset`](predicates.md#asset) grew 141 B when its atomic-swap branch was
+added. Their first coins (below) were therefore an *earlier generation* than the code — a
+drift nothing checked until `npm run check:rebuild` rebuilt every deployed coin from its
+receipt and found it. Each was then redeployed with the current code and spent, so the coin
+on chain is byte-identical to today's predicate again; `verify:chain` reports all five
+`on chain = ledger = current code`.
+
+| predicate | deploy (current bytes) | spent | size |
+|---|---|---|---|
+| covenant | `1a0fcb044efa…`:0 | `ca6c16cc726f…` | 384 B |
+| metered | `6b636a565924…`:0 | `c801fdc496f7…` | 488 B |
+| titled | `6302f16515a5…`:0 | `8441c871eb49…` | 506 B |
+| royalty | `04b15757a203…`:0 | `5b146a519ba5…` | 603 B |
+| asset | `df32544994e7…`:0 | `9ed42e4ba7bc…` | 1001 B |
+
+The earlier coins remain in the per-predicate sections below as real, spent history — the
+size story is in the chain itself. Reproduced by `scripts/redeploy-drifted.js`, which
+verifies every spend against the interpreter before it broadcasts.
 
 ## vesting
 

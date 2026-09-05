@@ -15,14 +15,11 @@
 
 const onchain = require('../src/onchain')
 
-// predicate -> reason its deployed receipt is an earlier version than the current code
-const KNOWN = {
-  metered: 'two-branch sizing optimisation applied after deploy',
-  titled: 'two-branch sizing optimisation applied after deploy',
-  royalty: 'two-branch sizing optimisation applied after deploy',
-  covenant: 'reduced after deploy',
-  asset: 'atomic-swap branch added after deploy'
-}
+// predicate -> reason its deployed receipt is an earlier version than the current code.
+// Empty: every predicate is currently byte-identical to its spent coin. If a predicate is
+// ever improved after its deployment, record it here (with the reason) until it is
+// redeployed, so `--strict` treats it as known rather than a regression.
+const KNOWN = {}
 
 // Rebuild a locking script from a receipt's params, trying the deploy path (lock) first,
 // then a direct buildScript. Returns a Script or null if neither reconstructs from params.
