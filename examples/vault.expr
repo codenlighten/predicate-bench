@@ -1,0 +1,6 @@
+# A time-locked payment vault, composed from two covenant primitives: the coins may move
+# only to a fixed destination (pay), and only after a block height (tx.locktime). Neither
+# is in the predicate catalogue on its own — the composition is the point.
+#   sci deploy examples/vault.expr dest=<addr> amount=900 notBefore=964000
+pay(this.dest, this.amount)
+assert(tx.locktime >= this.notBefore)

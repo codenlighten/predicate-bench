@@ -1,0 +1,5 @@
+# A covenant: these coins can only ever move to a fixed address and amount, committed
+# when they were locked. pay() binds the WHOLE output set (hashOutputs) — the spender
+# chooses nothing. Compiles BYTE-IDENTICAL to the deployed `covenant` predicate.
+#   sci deploy examples/covenant.expr payTo=<addr> payAmount=900
+pay(this.payTo, this.payAmount)

@@ -109,10 +109,31 @@ The expression compiler did not approximate a timelock — it reproduced the exa
 from a condition, so it inherits that covenant's soundness and its refusals: a too-early spend
 and a final-sequence spend are both rejected by the real interpreter.
 
-This is the first rung of the covenant frontier. The next rungs — more context fields
-(`tx.value`), then output binding and self-recreation, so a *stateful* covenant authors from an
-expression — build on the same preimage bridge, each held to the same real-interpreter,
-refusal-first bar.
+Output binding is the other half. A `pay(dest, amount)` statement commits the **whole output
+set**: the compiler bakes the double-SHA256 of the outputs and requires the preimage's
+`hashOutputs` to equal it, so the spender chooses nothing about where the money goes.
+
+```
+pay(this.payTo, this.payAmount)
+```
+
+That one line compiles **byte-identical to the deployed [`covenant`](predicates.md#covenant)**
+(384 B) — the second on-chain covenant reproduced from a condition.
+
+And the primitives **compose**. Neither of these is in the catalogue on its own; the
+composition is:
+
+```
+pay(this.dest, this.amount)            # a time-locked payment vault
+assert(tx.locktime >= this.notBefore)
+```
+
+A 413-byte vault that moves the coins only to a fixed destination and only after a height,
+verified on the interpreter to refuse a redirected output, a too-early spend, and a final
+input. This is the covenant frontier working: two proven primitives, combined into one that
+was never written by hand, judged by the block validator. The next rung — **self-recreation**
+(a covenant whose output is another instance of itself, carrying updated state) — builds on
+the same preimage-and-`pay` bridge, held to the same real-interpreter, refusal-first bar.
 
 ## From the command line
 

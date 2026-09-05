@@ -136,6 +136,31 @@ predicate('!(a == b)', 'given a b\nassert(!(a == b))', [
     'tx.locktime >= this.notBefore → BYTE-IDENTICAL to the deployed timelock covenant (372 B, already on mainnet)')
 }
 
+// output binding: pay() commits the WHOLE output set (hashOutputs) — the spender chooses nothing
+{
+  const helpers = require('@smartledger/bsv/lib/covenant/helpers')
+  const cov = require('../src/predicates/covenant')
+  const elsewhere = [helpers.p2pkhOutput('18fUDTpVhXjfbHBsdcj6diHnNDnafxP2if', 900)]
+  const params = { payTo: '1PZBjMiVngoEhvffs7k5Rgysw4yAZVspcS', payAmount: 900 }
+  predicate('covenant: pay(this.payTo, this.payAmount)', 'pay(this.payTo, this.payAmount)', [
+    params,
+    { ...params, actualOutputs: elsewhere, shouldFail: true }   // redirected — hashOutputs mismatch
+  ])
+  ok(expr.compile('pay(this.payTo, this.payAmount)').lock(params).toHex() === cov.lock(params).toHex(),
+    'pay(this.payTo, this.payAmount) → BYTE-IDENTICAL to the deployed covenant (384 B, already on mainnet)')
+
+  // COMPOSE two covenant primitives into one not in the catalogue: a time-locked payment vault
+  const NB = 964000
+  const base = { dest: '1PZBjMiVngoEhvffs7k5Rgysw4yAZVspcS', amount: 900, notBefore: NB }
+  predicate('vault (pay ∧ timelock): pay(dest, amount); assert(tx.locktime >= notBefore)',
+    'pay(this.dest, this.amount)\nassert(tx.locktime >= this.notBefore)', [
+      { ...base, at: NB + 50 },
+      { ...base, at: NB - 1, shouldFail: true },                                  // too early
+      { ...base, at: NB, actualOutputs: elsewhere, shouldFail: true },            // redirected
+      { ...base, at: NB, sequenceNumber: 0xffffffff, shouldFail: true }           // final input
+    ])
+}
+
 // m-of-n multisig: a threshold of signatures, checked in pubkey order (NULLDUMMY dummy)
 {
   const keys = [0, 1, 2].map(() => bsv.PrivateKey.fromRandom())

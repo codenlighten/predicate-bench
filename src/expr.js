@@ -29,6 +29,7 @@
 
 const bsv = require('@smartledger/bsv')
 const helpers = require('@smartledger/bsv/lib/covenant/helpers')
+const PushTx = require('@smartledger/bsv/lib/covenant/pushtx')
 const { StackAsm } = require('./stackasm')
 const C = require('./clauses')
 const Opcode = bsv.Opcode
@@ -154,6 +155,7 @@ function parser (toks) {
       return { k: 'for', varName, count, body }
     }
     if (t.v === 'assert') { next(); eat('('); const e = or(); eat(')'); return { k: 'assert', expr: e } }
+    if (t.v === 'pay') { next(); eat('('); const dest = or(); eat(','); const amount = or(); eat(')'); return { k: 'pay', dest, amount } }
     // assignment: ident = expr
     if (t.t === 'id') { const name = next().v; eat('='); return { k: 'assign', name, expr: or() } }
     throw new Error(`expr: unrecognised statement starting at '${t.v ?? t.t}'`)
@@ -200,6 +202,15 @@ function constIndex (node, env) {
   if (node.k === 'num') return node.v
   if (node.k === 'var' && node.name in env.loop) return env.loop[node.name]
   throw new Error('expr: an array index must be a compile-time constant (a loop variable or a number)')
+}
+
+// One p2pkh output a pay() statement commits to, resolved from baked params.
+function payOutput (st, params) {
+  const dest = params[st.dest.name]
+  if (dest === undefined) throw new Error(`expr: pay — unbound this.${st.dest.name}`)
+  const amount = st.amount.k === 'num' ? st.amount.v : params[st.amount.name]
+  if (typeof amount !== 'number') throw new Error(`expr: pay — amount ${st.amount.k === 'num' ? st.amount.v : 'this.' + st.amount.name} must be a number`)
+  return helpers.p2pkhOutput(dest, amount)
 }
 
 function asBuf (v, ref) {
@@ -301,6 +312,7 @@ function execStmt (st, asm, env) {
       asm.roll(st.name); asm.drop()                        // remove the previous binding, wherever it sat
       asm.rename(st.name); return
     case 'assert': emit(st.expr, asm, env); asm.verify(); return
+    case 'pay': return                                     // bound as a set in the covenant path
     case 'for': {
       const count = typeof st.count === 'number' ? st.count : env.params[st.count.param]
       if (!Number.isInteger(count) || count < 0) throw new Error(`expr: for-bound ${JSON.stringify(st.count)} did not resolve to a non-negative integer`)
@@ -326,7 +338,7 @@ function compile (source) {
     if (d.size === undefined) flat.push(d.name)
     else for (let i = 0; i < d.size; i++) flat.push(d.name + i)
   }
-  if (!stmts.some((s) => s.k === 'assert')) throw new Error('expr: a predicate needs at least one assert()')
+  if (!stmts.some((s) => s.k === 'assert' || s.k === 'pay')) throw new Error('expr: a predicate needs at least one assert() or pay()')
 
   // Fail fast, at compile time: an unknown function, a wrong arity, an undeclared witness or
   // variable, or an index of something that is not an array. A bad predicate never builds.
@@ -367,19 +379,24 @@ function compile (source) {
       default: throw new Error(`expr: cannot validate node ${node.k}`)
     }
   }
+  const vPay = (st) => {
+    if (st.dest.k !== 'param') throw new Error("expr: pay(dest, amount) — dest must be a baked address (this.<name>)")
+    if (st.amount.k !== 'param' && st.amount.k !== 'num') throw new Error('expr: pay(dest, amount) — amount must be a number or this.<name>')
+  }
   const vStmts = (list) => {
     for (const st of list) {
-      if (st.k === 'let') { vExpr(st.expr); known.add(st.name) } else if (st.k === 'assign') { if (!known.has(st.name)) throw new Error(`expr: '${st.name}' is assigned before it is introduced with 'let'`); vExpr(st.expr) } else if (st.k === 'assert') { vExpr(st.expr) } else if (st.k === 'for') { known.add(st.varName); vStmts(st.body) }
+      if (st.k === 'let') { vExpr(st.expr); known.add(st.name) } else if (st.k === 'assign') { if (!known.has(st.name)) throw new Error(`expr: '${st.name}' is assigned before it is introduced with 'let'`); vExpr(st.expr) } else if (st.k === 'assert') { vExpr(st.expr) } else if (st.k === 'pay') { vPay(st) } else if (st.k === 'for') { known.add(st.varName); vStmts(st.body) }
     }
   }
   vStmts(stmts)
 
-  // A predicate that reads the spending context is a covenant: its only witness is the
-  // authenticated preimage, which the unlock synthesises (OP_PUSH_TX). Mixing it with a
-  // user witness stack is a real design (preimage + witness together), but a subtle one —
-  // kept out of v1 so the sound path stays simple.
-  const usesContext = ctxInfo.used
-  if (usesContext && flat.length) throw new Error('expr: a predicate that reads tx.<field> cannot also declare a witness (given ...) yet')
+  // A predicate that reads the spending context or binds outputs is a covenant: its only
+  // witness is the authenticated preimage, which the unlock synthesises (OP_PUSH_TX). Mixing
+  // it with a user witness stack is a real design (preimage + witness together), but a subtle
+  // one — kept out of v1 so the sound path stays simple.
+  const payStmts = stmts.filter((s) => s.k === 'pay')
+  const usesContext = ctxInfo.used || payStmts.length > 0
+  if (usesContext && flat.length) throw new Error('expr: a covenant (tx.<field> or pay(...)) cannot also declare a witness (given ...) yet')
 
   const predicate = {
     name: 'expr',
@@ -397,8 +414,18 @@ function compile (source) {
         const asm = new StackAsm(s).given(['preimage'])
         C.authenticate(asm.s)                              // net-neutral: [preimage] -> [preimage]
         if (ctxInfo.guardsSequence) C.requireSequenceNonFinal(asm.s)
+        if (payStmts.length) {
+          // Bind the WHOLE output set: hashOutputs (a double-SHA256 over every output's amount
+          // and script) must equal the commitment computed from the pay() destinations. The
+          // spender chooses nothing about where the money goes. Net-neutral on the preimage.
+          const outs = payStmts.map((st) => payOutput(st, params))
+          const expected = PushTx.hashOutputs(outs)
+          asm.s.add(Opcode.OP_DUP)
+          PushTx.extractHashOutputs(asm.s)                 // last 40, first 32
+          asm.s.add(Buffer.from(expected)).add(Opcode.OP_EQUALVERIFY)
+        }
         const env = { params, arrays, loop: {}, ctr: { n: 0 } }
-        for (const st of stmts) execStmt(st, asm, env)
+        for (const st of stmts) if (st.k !== 'pay') execStmt(st, asm, env)
         asm.drop()                                         // drop the preimage
         asm.raw(Opcode.OP_1, 0, ['true'])
         return s
@@ -445,6 +472,10 @@ function compile (source) {
   }
   // A context predicate must be spent by a non-final input, or its nLockTime check is inert.
   if (usesContext && ctxInfo.guardsSequence) predicate.unlockDefaults = { sequenceNumber: 0xfffffffe }
+  // A pay() covenant dictates its outputs, so the harness and the on-chain path build the spend
+  // from them (not change wherever they like). A test may pass actualOutputs to spend elsewhere
+  // and watch the commitment refuse it.
+  if (payStmts.length) predicate.outputs = (ctx = {}) => ctx.actualOutputs || payStmts.map((st) => payOutput(st, ctx))
   return predicate
 }
 
