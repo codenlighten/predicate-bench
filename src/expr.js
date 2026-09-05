@@ -191,6 +191,35 @@ function constIndex (node, env) {
   throw new Error('expr: an array index must be a compile-time constant (a loop variable or a number)')
 }
 
+function asBuf (v, ref) {
+  if (v && v.type === 'Buffer' && Array.isArray(v.data)) v = Buffer.from(v.data)
+  if (Buffer.isBuffer(v)) return v
+  if (typeof v === 'string' && /^[0-9a-fA-F]+$/.test(v) && v.length % 2 === 0) return Buffer.from(v, 'hex')
+  if (v && typeof v.toBuffer === 'function') return v.toBuffer()             // a PublicKey
+  throw new Error(`expr: ${ref} must be a public key (hex or Buffer)`)
+}
+
+// checkMultiSig(sigs, pubkeys) — m-of-n, where m is the size of the witness sig array and n is
+// the length of the baked pubkey array: <empty-dummy> sig0..sig(m-1) m pub0..pub(n-1) n
+// OP_CHECKMULTISIG. The dummy is empty (NULLDUMMY); the sigs are checked in pubkey order.
+function emitMultiSig (node, asm, env, label) {
+  if (node.args.length !== 2) throw new Error('expr: checkMultiSig(sigs, pubkeys) takes 2 arguments')
+  const [sigArg, pkArg] = node.args
+  if (sigArg.k !== 'var' || !env.arrays.has(sigArg.name)) throw new Error("expr: checkMultiSig's first argument must be a witness sig array (declare 'given sig[m]')")
+  if (pkArg.k !== 'param') throw new Error("expr: checkMultiSig's second argument must be a baked pubkey array (this.pubkeys)")
+  const m = env.arrays.get(sigArg.name)
+  const pubkeys = env.params[pkArg.name]
+  if (!Array.isArray(pubkeys)) throw new Error(`expr: this.${pkArg.name} must be an array of public keys`)
+  const nn = pubkeys.length
+  if (m > nn) throw new Error(`expr: checkMultiSig needs at least as many keys (${nn}) as signatures (${m})`)
+  asm.num(0, 'msDummy')                                              // the required empty dummy
+  for (let i = 0; i < m; i++) asm.pick(sigArg.name + i, 'msSig' + i)
+  asm.num(m, 'msM')
+  for (let i = 0; i < nn; i++) asm.data(asBuf(pubkeys[i], `this.${pkArg.name}[${i}]`), 'msPk' + i)
+  asm.num(nn, 'msN')
+  asm.op('OP_CHECKMULTISIG', m + nn + 3, [label])                    // pops dummy+m sigs+m+n pubs+n
+}
+
 function emit (node, asm, env) {
   const lbl = () => 't' + (env.ctr.n++)
   switch (node.k) {
@@ -227,8 +256,9 @@ function emit (node, asm, env) {
       return
     }
     case 'call': {
+      if (node.fn === 'checkMultiSig') return emitMultiSig(node, asm, env, lbl())
       const def = CALL[node.fn]
-      if (!def) throw new Error(`expr: unknown function '${node.fn}' (have: ${Object.keys(CALL).join(', ')})`)
+      if (!def) throw new Error(`expr: unknown function '${node.fn}' (have: ${Object.keys(CALL).join(', ')}, checkMultiSig)`)
       if (node.args.length !== def.arity) throw new Error(`expr: ${node.fn}() takes ${def.arity} argument(s), got ${node.args.length}`)
       node.args.forEach((a) => emit(a, asm, env))
       def.emit(asm, lbl())
@@ -292,8 +322,14 @@ function compile (source) {
       case 'bin': vExpr(node.l); vExpr(node.r); return
       case 'cond': vExpr(node.c); vExpr(node.a); vExpr(node.b); return
       case 'call': {
+        if (node.fn === 'checkMultiSig') {
+          if (node.args.length !== 2) throw new Error('expr: checkMultiSig(sigs, pubkeys) takes 2 arguments')
+          if (node.args[0].k !== 'var' || !arrays.has(node.args[0].name)) throw new Error("expr: checkMultiSig's first argument must be a witness sig array (declare 'given sig[m]')")
+          if (node.args[1].k !== 'param') throw new Error("expr: checkMultiSig's second argument must be a baked pubkey array (this.pubkeys)")
+          return
+        }
         const d = CALL[node.fn]
-        if (!d) throw new Error(`expr: unknown function '${node.fn}' (have: ${Object.keys(CALL).join(', ')})`)
+        if (!d) throw new Error(`expr: unknown function '${node.fn}' (have: ${Object.keys(CALL).join(', ')}, checkMultiSig)`)
         if (node.args.length !== d.arity) throw new Error(`expr: ${node.fn}() takes ${d.arity} argument(s), got ${node.args.length}`)
         node.args.forEach(vExpr); return
       }
@@ -316,7 +352,7 @@ function compile (source) {
     lock (params = {}) {
       const s = new Script()
       const asm = new StackAsm(s).given(flat.slice())
-      const env = { params, loop: {}, ctr: { n: 0 } }
+      const env = { params, arrays, loop: {}, ctr: { n: 0 } }
       for (const st of stmts) execStmt(st, asm, env)
       while (asm.main.length) asm.drop()                   // discard witness + accumulators
       asm.raw(Opcode.OP_1, 0, ['true'])                    // leave true (clean stack, per policy)

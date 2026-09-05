@@ -30,8 +30,10 @@ tests that judge every predicate here. Nothing is simulated.
 - **Comparison** — `== != < <= > >=`, leaving a boolean.
 - **Boolean** — `&& || !`, with the usual precedence (`||` loosest, unary `!` tightest).
 - **Built-ins** — `hash160(x)`, `hash256(x)`, `sha256(x)`, byte-equality `eq(a, b)`,
-  `min(a, b)`, `max(a, b)`, and **`checkSig(sig, pubkey)`** — a real signature check against
-  the spending transaction (`OP_CHECKSIG`).
+  `min(a, b)`, `max(a, b)`, **`checkSig(sig, pubkey)`** — a real signature check against the
+  spending transaction (`OP_CHECKSIG`) — and **`checkMultiSig(sigs, pubkeys)`**, an m-of-n
+  threshold where `m` is the size of the witness sig array and `n` the baked pubkey array
+  (`OP_CHECKMULTISIG`, checked in key order, with the empty `NULLDUMMY` dummy).
 - **`assert(expr)`** — each becomes an `OP_VERIFY`; the script ends by discarding the
   witness and leaving `true`, so the stack is clean (as relay policy requires).
 

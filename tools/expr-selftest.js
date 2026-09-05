@@ -118,6 +118,19 @@ predicate('!(a == b)', 'given a b\nassert(!(a == b))', [
   ])
 }
 
+// m-of-n multisig: a threshold of signatures, checked in pubkey order (NULLDUMMY dummy)
+{
+  const keys = [0, 1, 2].map(() => bsv.PrivateKey.fromRandom())
+  const pubkeys = keys.map((k) => k.toPublicKey().toBuffer())
+  const wrong = bsv.PrivateKey.fromRandom()
+  predicate('2-of-3 multisig: checkMultiSig(sig, this.pubkeys)', 'given sig[2]\nassert(checkMultiSig(sig, this.pubkeys))', [
+    { sig: [keys[0], keys[1]], pubkeys },
+    { sig: [keys[0], keys[2]], pubkeys },
+    { sig: [keys[1], keys[0]], pubkeys, shouldFail: true },   // right keys, wrong order
+    { sig: [keys[0], wrong], pubkeys, shouldFail: true }      // an impostor
+  ])
+}
+
 // bounded loops that unroll: a hash chain folds a fixed number of items into a commitment
 {
   const H = (b) => bsv.crypto.Hash.sha256sha256(b)

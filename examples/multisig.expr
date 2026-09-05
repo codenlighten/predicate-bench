@@ -1,0 +1,6 @@
+# m-of-n multisig, authored as a condition: any m of the n baked public keys
+# must sign, in key order. Here m = the size of the sig array (2), n = keys (3).
+#   sci deploy examples/multisig.expr pubkeys=<not CLI-expressible; use a script>
+# (array params are supplied programmatically; see scripts/deploy-expression.js.)
+given sig[2]
+assert(checkMultiSig(sig, this.pubkeys))
