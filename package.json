@@ -4,7 +4,7 @@
   "description": "A bench for writing custom BSV locking scripts and proving them against the real consensus interpreter before they touch the chain.",
   "main": "src/harness.js",
   "scripts": {
-    "test": "node test.js && node tools/trace-selftest.js && node tools/nonce-selftest.js && node tools/token-merge-analysis.js && node tools/compile-selftest.js && node tools/predlang-selftest.js && node tools/tslang-selftest.js && node tools/statelayout-selftest.js && node tools/manypositions-selftest.js && node tools/highlevel-selftest.js && node tools/relational-selftest.js && node tools/relcompile-selftest.js && node tools/rellang-selftest.js && node tools/opcodes-selftest.js && node tools/compose-selftest.js && node tools/relgraph-selftest.js && node tools/graphlang-selftest.js && node tools/anchors.js && node tools/audit.js && node tools/rebuild-check.js --strict",
+    "test": "node test.js && node tools/trace-selftest.js && node tools/nonce-selftest.js && node tools/token-merge-analysis.js && node tools/compile-selftest.js && node tools/predlang-selftest.js && node tools/tslang-selftest.js && node tools/expr-selftest.js && node tools/statelayout-selftest.js && node tools/manypositions-selftest.js && node tools/highlevel-selftest.js && node tools/relational-selftest.js && node tools/relcompile-selftest.js && node tools/rellang-selftest.js && node tools/opcodes-selftest.js && node tools/compose-selftest.js && node tools/relgraph-selftest.js && node tools/graphlang-selftest.js && node tools/anchors.js && node tools/audit.js && node tools/rebuild-check.js --strict",
     "cli": "node bin/cli.js",
     "probe": "node bin/probe.js",
     "check:docs": "node tools/anchors.js",
@@ -26,6 +26,7 @@
     "selftest:graphlang": "node tools/graphlang-selftest.js",
     "selftest:compose": "node tools/compose-selftest.js",
     "selftest:tslang": "node tools/tslang-selftest.js",
+    "selftest:expr": "node tools/expr-selftest.js",
     "selftest:highlevel": "node tools/highlevel-selftest.js",
     "selftest:opcodes": "node tools/opcodes-selftest.js"
   },

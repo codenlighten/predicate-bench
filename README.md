@@ -55,6 +55,8 @@ individual documents:
   stopped it, in which branch, with the stack going in.
 - **[compiler.md](docs/compiler.md)** — a predicate as data: it compiles to the
   deployed bytes exactly, and refuses specs that reproduce the pitfalls.
+- **[expressions.md](docs/expressions.md)** — authoring a *new* predicate from a
+  condition: a zero-dependency expression compiler, judged by the real interpreter.
 - **[tooling.md](docs/tooling.md)** — the verification apparatus, and the rule
   underneath it: a check you have not seen fail is not a check.
 - **[pitfalls.md](docs/pitfalls.md)** — twenty-five things that cost a real

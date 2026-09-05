@@ -63,6 +63,9 @@ Reference, once the above make sense:
 - **[compiler.md](compiler.md)** — a predicate as data: a spec that compiles to
   the deployed bytes exactly, with the bench's pitfalls enforced as compile-time
   invariants.
+- **[expressions.md](expressions.md)** — authoring a *new* predicate from a
+  condition (`assert(a + b == this.total)`): a zero-dependency expression compiler
+  that emits real Script, judged by the consensus interpreter, refusals and all.
 - **[relational.md](relational.md)** — the type ladder for cross-object predicates:
   what one coin may soundly conclude about another it is spent beside, and why a
   bounded total needs proven descent.
