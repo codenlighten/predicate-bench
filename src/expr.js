@@ -175,6 +175,9 @@ const CALL = {
 }
 
 function bakedPush (asm, v, name, ref) {
+  // A Buffer param survives JSON (deployments.json) as { type:'Buffer', data:[...] }; a receipt
+  // reconstructed from disk hands it back in that form, so accept it.
+  if (v && v.type === 'Buffer' && Array.isArray(v.data)) v = Buffer.from(v.data)
   if (Buffer.isBuffer(v)) return asm.data(v, name)
   if (typeof v === 'number') return asm.num(v, name)
   if (typeof v === 'string' && /^[0-9a-fA-F]+$/.test(v) && v.length % 2 === 0) return asm.data(Buffer.from(v, 'hex'), name)

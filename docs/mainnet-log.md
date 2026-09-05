@@ -51,6 +51,22 @@ The earlier coins remain in the per-predicate sections below as real, spent hist
 size story is in the chain itself. Reproduced by `scripts/redeploy-drifted.js`, which
 verifies every spend against the interpreter before it broadcasts.
 
+## authored from an expression
+
+Beyond the curated catalogue, a predicate written as a plain *condition* — compiled by the
+zero-dependency [expression compiler](expressions.md) — is also deployed and spent on mainnet.
+These receipts carry their **source**, so `npm run verify:chain` recompiles each and confirms
+the bytes on chain: the condition someone wrote *is* the coin.
+
+| predicate (source) | deploy | spent | lock |
+|---|---|---|---|
+| `assert(eq(hash160(pubkey), owner)); assert(checkSig(sig, pubkey))` — a P2PKH | `465fc91f681a…`:0 | `057fa1ac301a…` | 32 B |
+| `assert(eq(hash160(preimage), h))` — a hashlock | `586c313cbb23…`:0 | `eea326056455…` | 27 B |
+
+Ownership and knowledge, each authored from one or two lines, each accepted for the right
+witness and refused for the wrong one — by the network, not a local reimplementation.
+Reproduced by `scripts/deploy-expression.js`.
+
 ## vesting
 
 Value released **continuously over time**: a [`vesting`](predicates.md#vesting)

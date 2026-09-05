@@ -70,10 +70,14 @@ function actualSizes () {
 function deployment () {
   const onchain = require(path.join(root, 'src/onchain'))
   const ledger = onchain.readLedger()
-  const live = new Set(ledger.map(d => d.predicate))
   const all = fs.readdirSync(path.join(root, 'src/predicates'))
     .filter(f => f.endsWith('.js')).map(f => f.replace('.js', '')).sort()
-  return { live, absent: all.filter(n => !live.has(n)), n: all.length, outputs: ledger.length }
+  const modules = new Set(all)
+  // The catalogue count is the predicate MODULES. A coin authored from an expression carries
+  // its own source (no module) — it counts toward the recorded outputs, not the catalogue.
+  const live = new Set(ledger.filter(d => modules.has(d.predicate)).map(d => d.predicate))
+  const expr = ledger.filter(d => !modules.has(d.predicate)).length
+  return { live, absent: all.filter(n => !live.has(n)), n: all.length, outputs: ledger.length, expr }
 }
 
 function actualCases () {

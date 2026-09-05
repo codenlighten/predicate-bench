@@ -144,7 +144,7 @@ the list.
 <!-- audit:deployment -->
 All forty-five predicates have been deployed and spent on BSV mainnet. Every
 documented txid is verified against the chain rather than asserted: `npm run
-verify:chain` confirms all 116 recorded outputs exist and match their recorded
+verify:chain` confirms all 118 recorded outputs exist and match their recorded
 bytes.
 <!-- /audit -->
 

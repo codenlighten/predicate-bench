@@ -35,9 +35,10 @@ function rebuild (record) {
 
 const strict = process.argv.includes('--strict')
 
-// latest receipt per predicate
+// latest receipt per predicate. A registered predicate keys by name (one module, latest
+// deploy); a predicate authored from an expression is its own source, so key each by txid.
 const latest = {}
-for (const r of onchain.readLedger()) latest[r.predicate] = r
+for (const r of onchain.readLedger()) latest[r.source ? `${r.predicate}:${r.txid.slice(0, 8)}` : r.predicate] = r
 
 const match = []   // exact hex match — current code === on-chain bytes
 const equiv = []   // same length, bytes differ only where the receipt doesn't pin key material

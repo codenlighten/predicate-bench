@@ -1962,5 +1962,59 @@
     "broadcast": true,
     "hopFrom": "df32544994e72e2b91f76b7bded660dc1af912d82327e67a355d0b9764e4db66",
     "hop": 1
+  },
+  {
+    "network": "livenet",
+    "predicate": "expr",
+    "params": {
+      "owner": {
+        "type": "Buffer",
+        "data": [
+          247,
+          105,
+          9,
+          4,
+          50,
+          198,
+          205,
+          117,
+          6,
+          157,
+          7,
+          156,
+          205,
+          206,
+          127,
+          19,
+          99,
+          42,
+          77,
+          122
+        ]
+      }
+    },
+    "txid": "465fc91f681a684b1f26cdd19ff374f7fcfbdc4f82cc3fcc44b50fe97684aaae",
+    "vout": 0,
+    "satoshis": 1000,
+    "lockAsm": "OP_DUP OP_HASH160 f769090432c6cd75069d079ccdce7f13632a4d7a OP_EQUAL OP_VERIFY OP_OVER OP_OVER OP_CHECKSIG OP_VERIFY OP_DROP OP_DROP OP_1",
+    "lockHex": "76a914f769090432c6cd75069d079ccdce7f13632a4d7a87697878ac69757551",
+    "fee": 24,
+    "at": "2026-09-05T16:47:55.552Z",
+    "source": "given sig pubkey\nassert(eq(hash160(pubkey), this.owner))\nassert(checkSig(sig, pubkey))"
+  },
+  {
+    "network": "livenet",
+    "predicate": "expr",
+    "params": {
+      "h": "565799929aa6ed89d9c012ec100086a8384736f2"
+    },
+    "txid": "586c313cbb23d2b440dfdc9ff77714162294a84d5489863fb009a3b8a52540b4",
+    "vout": 0,
+    "satoshis": 1000,
+    "lockAsm": "OP_DUP OP_HASH160 565799929aa6ed89d9c012ec100086a8384736f2 OP_EQUAL OP_VERIFY OP_DROP OP_1",
+    "lockHex": "76a914565799929aa6ed89d9c012ec100086a8384736f287697551",
+    "fee": 38,
+    "at": "2026-09-05T16:47:56.116Z",
+    "source": "given preimage\nassert(eq(hash160(preimage), this.h))"
   }
 ]
