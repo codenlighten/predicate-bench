@@ -46,6 +46,14 @@ function feeFor (bytes) {
   return Math.max(1, Math.ceil(bytes * cfg.feePerKb / 1000))
 }
 
+// Turn a deployment record back into a predicate object. A record that carries its `source`
+// was authored from an expression (it has no module on disk) and is recompiled; everything
+// else is a registered predicate loaded by name. One place, so every tool agrees.
+function reconstruct (record) {
+  if (record && record.source) return require('./expr').compile(record.source)
+  return loadPredicate(record.predicate)
+}
+
 function loadPredicate (name) {
   return require(path.join(__dirname, 'predicates', name + '.js'))
 }
@@ -57,7 +65,10 @@ function loadPredicate (name) {
  */
 async function deploy (predicateName, params = {}, { dryRun = false, satoshis } = {}) {
   const w = wallet.load()
-  const predicate = loadPredicate(predicateName)
+  // Accept a registered module by name, or a compiled predicate object directly (the
+  // expression compiler produces one). Either way it just needs lock()/unlock().
+  const predicate = typeof predicateName === 'string' ? loadPredicate(predicateName) : predicateName
+  const predName = typeof predicateName === 'string' ? predicateName : (predicateName.name || 'expr')
   const ctx = { ...params, key: w.privateKey }
   const lockingScript = predicate.lock(ctx)
 
@@ -81,7 +92,7 @@ async function deploy (predicateName, params = {}, { dryRun = false, satoshis } 
   const rawtx = tx.serialize()
   const record = {
     network: cfg.network,
-    predicate: predicateName,
+    predicate: predName,
     params,
     txid: tx.id,
     vout: 0,
@@ -91,6 +102,9 @@ async function deploy (predicateName, params = {}, { dryRun = false, satoshis } 
     fee: tx.getFee(),
     at: new Date().toISOString()
   }
+  // A predicate authored from an expression carries its source, so the receipt is
+  // self-describing: anyone can recompile it and confirm the bytes on chain.
+  if (typeof predicateName !== 'string' && predicateName.source) record.source = predicateName.source
 
   if (dryRun) return { ...record, rawtx, broadcast: false }
 
@@ -178,7 +192,10 @@ function recordContinuation (deployment, last, broadcastTxid) {
 
 async function buildUnlock (deployment, params, opts, estimatedUnlockSize) {
   const w = wallet.load()
-  const predicate = loadPredicate(deployment.predicate)
+  // opts.predicate lets the caller pass a compiled predicate object (an expression
+  // predicate is not a module on disk); a receipt that carries its source can recompile.
+  const predicate = opts.predicate ||
+    (deployment.source ? require('./expr').compile(deployment.source) : loadPredicate(deployment.predicate))
   const lockingScript = bsv.Script.fromHex(deployment.lockHex)
   const satoshis = deployment.satoshis
 
@@ -297,4 +314,4 @@ function publicResult (r) {
   return rest
 }
 
-module.exports = { deploy, unlock, readLedger, requireDeployed, appendLedger, loadPredicate, LEDGER }
+module.exports = { deploy, unlock, readLedger, requireDeployed, appendLedger, loadPredicate, reconstruct, LEDGER }

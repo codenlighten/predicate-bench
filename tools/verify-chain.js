@@ -34,8 +34,9 @@ const STRANDED = {
 
 function rebuild (entry) {
   try {
-    const predicate = onchain.loadPredicate(entry.predicate)
-    // The ledger stores params as JSON; predicates accept address strings.
+    // A predicate authored from an expression carries its source; everything else loads by
+    // name. The ledger stores params as JSON; predicates accept address strings.
+    const predicate = onchain.reconstruct(entry)
     const ctx = { ...entry.params }
     return predicate.lock(ctx).toHex()
   } catch (err) {

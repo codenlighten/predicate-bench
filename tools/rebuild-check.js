@@ -21,11 +21,13 @@ const onchain = require('../src/onchain')
 // redeployed, so `--strict` treats it as known rather than a regression.
 const KNOWN = {}
 
-// Rebuild a locking script from a receipt's params, trying the deploy path (lock) first,
-// then a direct buildScript. Returns a Script or null if neither reconstructs from params.
-function rebuild (name, params) {
-  const p = onchain.loadPredicate(name)
-  for (const f of [() => p.lock(params), () => (p.buildScript ? p.buildScript(params) : null)]) {
+// Rebuild a locking script from a receipt, trying the deploy path (lock) first, then a direct
+// buildScript. Reconstructs from the record — a predicate authored from an expression carries
+// its source and is recompiled. Returns a Script or null if it cannot be rebuilt from params.
+function rebuild (record) {
+  let p
+  try { p = onchain.reconstruct(record) } catch (_) { return null }
+  for (const f of [() => p.lock(record.params), () => (p.buildScript ? p.buildScript(record.params) : null)]) {
     try { const s = f(); if (s && typeof s.toBuffer === 'function') return s } catch (_) { /* try next */ }
   }
   return null
@@ -43,7 +45,7 @@ const drift = []   // length differs — the current code is genuinely a differe
 const skip = []    // params alone don't reconstruct this predicate's shape
 
 for (const [name, r] of Object.entries(latest)) {
-  const s = rebuild(name, r.params)
+  const s = rebuild(r)
   if (!s) { skip.push(name); continue }
   const now = s.toBuffer()
   const dep = Buffer.from(r.lockHex, 'hex')
