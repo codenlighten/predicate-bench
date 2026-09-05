@@ -56,6 +56,15 @@ const STEPS = {
   meteredGuardAtLeast: { emit: (s, p) => covsteps.meteredGuardAtLeast(s, p) },
   meteredPayFixed: { emit: (s, p) => covsteps.meteredPayFixed(s, p), binds: 'outputs', exit: true },
 
+  // --- lifecycle: a status state machine (2-branch, StackAsm bodies, issuer-signed) ---
+  // Each coarse step is a whole branch body ending in its own finish (terminal).
+  lifecycleTransition: { emitAsm: (a, p) => covsteps.lifecycleTransition(a, p), authorisesOwner: true, binds: 'outputs', selfRecreates: true, terminal: true },
+  lifecycleRetire: { emitAsm: (a, p) => covsteps.lifecycleRetire(a, p), authorisesOwner: true, binds: 'outputs', exit: true, terminal: true },
+
+  // --- turns: a two-player turn-based game (2-branch, StackAsm bodies, turn-bound sig) ---
+  turnsMove: { emitAsm: (a, p) => covsteps.turnsMove(a, p), authorisesOwner: true, binds: 'outputs', selfRecreates: true, terminal: true },
+  turnsSettle: { emitAsm: (a, p) => covsteps.turnsSettle(a, p), authorisesOwner: true, binds: 'outputs', exit: true, terminal: true },
+
   // --- vesting branch steps (StackAsm), gate → read → compute → guard → pay ---
   vestGate: { emitAsm: (a, p) => covsteps.vestGate(a, p) },
   vestReadValueParkChunk: { emitAsm: (a, p) => covsteps.vestReadValueParkChunk(a, p) },

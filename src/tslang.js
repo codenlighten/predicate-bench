@@ -57,7 +57,13 @@ const CALLS = {
   guardBelow: { op: 'meteredGuardBelow', args: ['max'] },
   guardAtLeast: { op: 'meteredGuardAtLeast', args: ['max'] },
   incrementRecreate: { op: 'meteredIncrementRecreate', named: true },
-  payFixed: { op: 'meteredPayFixed', args: ['address', 'fee'] }
+  payFixed: { op: 'meteredPayFixed', args: ['address', 'fee'] },
+  // lifecycle — a status state machine (each coarse step is a whole issuer-signed branch)
+  lifecycleTransition: { op: 'lifecycleTransition', named: true },
+  lifecycleRetire: { op: 'lifecycleRetire', named: true },
+  // turns — a two-player turn-based game (each coarse step is a whole branch)
+  turnsMove: { op: 'turnsMove', named: true },
+  turnsSettle: { op: 'turnsSettle', named: true }
 }
 const ARG_ALIASES = { head: 'headBytes', counter: 'counterBytes' }
 

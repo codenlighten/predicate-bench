@@ -597,7 +597,119 @@ function assetEmitSwap (asm) {
   assetExtractState(asm); assetStride(asm); assetRequireOwnerSig(asm); assetSwapPin(asm); tokFinishBranch(asm)
 }
 
+// lifecycle — a status state machine. Two branches, each issuer-signed, the preimage kept
+// on the MAIN stack (the finish drops it — no altstack parking). transition moves the status
+// along an allowed pair and splices the immutable core (genesis, issuer) into the successor;
+// retire is the exit. Shared verbatim with src/predicates/lifecycle.js so the two cannot drift.
+const LIFE_GEN = 32
+const LIFE_STATUS = 1
+const LIFE_ISSUER = 20
+const LIFE_HEAD = 4
+const LIFE_P2PKH_PRE = Buffer.from('1976a914', 'hex')
+const LIFE_P2PKH_POST = Buffer.from('88ac', 'hex')
+function lifeTransKey (old, next) { return Buffer.from([old, next]) }
+
+function lifeReadState (asm) {
+  asm.clause(C.selfChunk, 0, ['chunk'])
+  asm.splitAt(LIFE_HEAD, 'header', 'r1')
+  asm.splitAt(LIFE_GEN, 'genesis', 'r2')
+  asm.splitAt(LIFE_STATUS, 'status1', 'r3')
+  asm.splitAt(LIFE_ISSUER, 'issuer', 'tail')
+}
+function lifeRequireIssuerSig (asm) {
+  asm.pick('pubkey'); asm.hash160('pkh'); asm.pick('issuer'); asm.equalVerify()
+  asm.pick('sig'); asm.pick('pubkey'); asm.checkSigVerify()
+}
+function lifeFinish (asm) {
+  while (asm.main.length) asm.drop()
+  asm.raw(Opcode.OP_1, 0, ['ok'])
+}
+function lifecycleTransition (asm, { transitions, fee }) {
+  lifeReadState(asm)
+  lifeRequireIssuerSig(asm)
+  // move = old ‖ new; its first byte must equal the object's REAL status (so no move out of
+  // a state the object is not in — this is what makes a terminal state unspendable).
+  asm.pick('move'); asm.splitAt(1, 'moveOld', 'moveNew')
+  asm.pick('moveOld'); asm.pick('status1'); asm.equalVerify()
+  asm.pick('move'); asm.data(lifeTransKey(transitions[0][0], transitions[0][1]), 'k0'); asm.equal('acc')
+  for (let i = 1; i < transitions.length; i++) {
+    asm.pick('move'); asm.data(lifeTransKey(transitions[i][0], transitions[i][1]), 'k' + i); asm.equal('ei')
+    asm.raw(Opcode.OP_BOOLOR, 2, ['acc'])
+  }
+  asm.verify()
+  // successor: genesis and issuer UNCHANGED, status -> moveNew
+  asm.pick('genesis'); asm.pick('moveNew'); asm.cat('gn'); asm.pick('issuer'); asm.cat('newState')
+  asm.pick('header'); asm.pick('newState'); asm.cat('hn'); asm.pick('tail'); asm.cat('newChunk')
+  asm.pick('preimage', 'pv'); asm.clause((x) => C.newValueLE(x, fee), 1, ['newValue8'])
+  asm.pick('newChunk'); asm.cat('nextOutput')
+  asm.bindOutput('nextOutput')
+  lifeFinish(asm)
+}
+function lifecycleRetire (asm, { fee }) {
+  lifeReadState(asm)
+  lifeRequireIssuerSig(asm)
+  asm.pick('preimage', 'pv'); asm.clause((x) => C.newValueLE(x, fee), 1, ['newValue8'])
+  asm.data(LIFE_P2PKH_PRE, 'pre'); asm.pick('issuer'); asm.cat('ik1'); asm.data(LIFE_P2PKH_POST, 'post'); asm.cat('issuerChunk')
+  asm.cat('retireOutput')
+  asm.bindOutput('retireOutput')
+  lifeFinish(asm)
+}
+
+// turns — a two-player turn-based game. move: the player whose turn it is signs, sets a new
+// 32-byte game state, flips the turn, recreates the coin; settle: both players sign and the
+// pot goes to a named winner. Same MAIN-stack, drop-finish shape as lifecycle; shared
+// verbatim with src/predicates/turns.js (the P2PKH constants and finish are reused).
+const TURN_A = 20
+const TURN_B = 20
+const TURN_T = 1
+const TURN_G = 32
+const TURN_HEAD = 4
+function turnsReadState (asm) {
+  asm.clause(C.selfChunk, 0, ['chunk'])
+  asm.splitAt(TURN_HEAD, 'header', 'r1')
+  asm.splitAt(TURN_A, 'a', 'r2')
+  asm.splitAt(TURN_B, 'b', 'r3')
+  asm.splitAt(TURN_T, 'turn', 'r4')
+  asm.splitAt(TURN_G, 'gstate', 'tail')
+}
+function turnsMove (asm, { fee }) {
+  turnsReadState(asm)
+  // the signer must be the player whose turn it is: (pkh==a ∧ turn==0) ∨ (pkh==b ∧ turn==1)
+  asm.pick('pubkey'); asm.hash160('spkh')
+  asm.pick('turn'); asm.bin2num('turnNum')
+  asm.pick('spkh'); asm.pick('a'); asm.equal('isA')
+  asm.pick('turnNum'); asm.num(0, 'z'); asm.numEqual('t0'); asm.raw(Opcode.OP_BOOLAND, 2, ['e1'])
+  asm.pick('spkh'); asm.pick('b'); asm.equal('isB')
+  asm.pick('turnNum'); asm.num(1, 'one'); asm.numEqual('t1'); asm.raw(Opcode.OP_BOOLAND, 2, ['e2'])
+  asm.raw(Opcode.OP_BOOLOR, 2, ['authOk']); asm.verify()
+  asm.pick('sig'); asm.pick('pubkey'); asm.checkSigVerify()
+  // the next game state is spender-chosen, exactly 32 bytes
+  asm.pick('newState'); asm.size('nsz'); asm.num(TURN_G, 'gb'); asm.equalVerify()
+  // the turn flips: newTurn = 1 - turnNum, one byte
+  asm.num(1, 'one2'); asm.pick('turnNum'); asm.sub('ntn'); asm.num2bin(TURN_T, 'newTurn')
+  // successor: a ‖ b unchanged, turn flipped, new game state; everything else identical
+  asm.pick('header'); asm.pick('a'); asm.cat('h1'); asm.pick('b'); asm.cat('h2')
+  asm.pick('newTurn'); asm.cat('h3'); asm.pick('newState'); asm.cat('h4'); asm.pick('tail'); asm.cat('newChunk')
+  asm.pick('preimage', 'pv'); asm.clause((x) => C.newValueLE(x, fee), 1, ['newValue8'])
+  asm.pick('newChunk'); asm.cat('moveOut')
+  asm.bindOutput('moveOut')
+  lifeFinish(asm)
+}
+function turnsSettle (asm, { fee }) {
+  turnsReadState(asm)
+  asm.pick('pubA'); asm.hash160('apkh'); asm.pick('a'); asm.equalVerify(); asm.pick('sigA'); asm.pick('pubA'); asm.checkSigVerify()
+  asm.pick('pubB'); asm.hash160('bpkh'); asm.pick('b'); asm.equalVerify(); asm.pick('sigB'); asm.pick('pubB'); asm.checkSigVerify()
+  asm.pick('winner'); asm.size('wsz'); asm.num(20, 'w20'); asm.equalVerify()
+  asm.pick('preimage', 'pv'); asm.clause((x) => C.newValueLE(x, fee), 1, ['newValue8'])
+  asm.data(LIFE_P2PKH_PRE, 'pre'); asm.pick('winner'); asm.cat('wk'); asm.data(LIFE_P2PKH_POST, 'post'); asm.cat('wchunk')
+  asm.cat('settleOut')
+  asm.bindOutput('settleOut')
+  lifeFinish(asm)
+}
+
 module.exports = {
+  lifecycleTransition, lifecycleRetire,
+  turnsMove, turnsSettle,
   meteredReadCounterKeep, meteredReadCounterDrop, meteredGuardBelow, meteredGuardAtLeast,
   meteredIncrementRecreate, meteredPayFixed,
   vestingWithdraw, vestingFinish, beneficiaryChunk,

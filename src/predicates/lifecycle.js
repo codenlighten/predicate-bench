@@ -5,6 +5,7 @@ const PushTx = require('@smartledger/bsv/lib/covenant/pushtx')
 const helpers = require('@smartledger/bsv/lib/covenant/helpers')
 const C = require('../clauses')
 const { StackAsm } = require('../stackasm')
+const covsteps = require('../covsteps')
 const Script = bsv.Script
 const Opcode = bsv.Opcode
 
@@ -35,12 +36,8 @@ const GEN_BYTES = 32
 const STATUS_BYTES = 1
 const ISSUER_BYTES = 20
 const STATE_BYTES = GEN_BYTES + STATUS_BYTES + ISSUER_BYTES   // 53, push-op 0x35
-const VARINT_BYTES = 3
-const HEAD_BYTES = VARINT_BYTES + 1
 const DUST = 2000
 const DEFAULT_FEE = 250
-const P2PKH_PRE = Buffer.from('1976a914', 'hex')
-const P2PKH_POST = Buffer.from('88ac', 'hex')
 
 // the certificate state machine
 const ISSUED = 0
@@ -63,60 +60,9 @@ function pkhOf (a) {
   if (Buffer.isBuffer(a)) return a
   return /^[0-9a-f]{40}$/i.test(a) ? Buffer.from(a, 'hex') : hash160Of(a)
 }
-function transKey (old, next) { return Buffer.from([old, next]) }
 function state (genesis, status, issuer) {
   return Buffer.concat([buf(genesis), Buffer.from([status]), pkhOf(issuer)])
 }
-
-function readState (asm) {
-  asm.clause(C.selfChunk, 0, ['chunk'])
-  asm.splitAt(HEAD_BYTES, 'header', 'r1')
-  asm.splitAt(GEN_BYTES, 'genesis', 'r2')
-  asm.splitAt(STATUS_BYTES, 'status1', 'r3')
-  asm.splitAt(ISSUER_BYTES, 'issuer', 'tail')
-}
-function requireIssuerSig (asm) {
-  asm.pick('pubkey'); asm.hash160('pkh'); asm.pick('issuer'); asm.equalVerify()
-  asm.pick('sig'); asm.pick('pubkey'); asm.checkSigVerify()
-}
-function transitionBody (asm, { transitions, fee }) {
-  readState(asm)
-  requireIssuerSig(asm)
-
-  // The spender presents move = old ‖ new (two bytes). Pushed whole, it dodges
-  // the small-int MINIMALDATA trap a bare status byte would hit, and — the load-
-  // bearing part — its FIRST byte must equal the object's REAL current status,
-  // so a spender cannot claim a move out of a state the object is not in. That
-  // is what makes REVOKED terminal: no allowed move begins with it, and the move
-  // cannot lie about where it begins.
-  asm.pick('move'); asm.splitAt(1, 'moveOld', 'moveNew')
-  asm.pick('moveOld'); asm.pick('status1'); asm.equalVerify()
-
-  // move must be one of the allowed pairs — a set-membership test
-  asm.pick('move'); asm.data(transKey(transitions[0][0], transitions[0][1]), 'k0'); asm.equal('acc')
-  for (let i = 1; i < transitions.length; i++) {
-    asm.pick('move'); asm.data(transKey(transitions[i][0], transitions[i][1]), 'k' + i); asm.equal('ei')
-    asm.raw(Opcode.OP_BOOLOR, 2, ['acc'])
-  }
-  asm.verify()                                            // the transition is allowed
-
-  // successor: genesis and issuer UNCHANGED, status -> moveNew
-  asm.pick('genesis'); asm.pick('moveNew'); asm.cat('gn'); asm.pick('issuer'); asm.cat('newState')
-  asm.pick('header'); asm.pick('newState'); asm.cat('hn'); asm.pick('tail'); asm.cat('newChunk')
-  asm.pick('preimage', 'pv'); asm.clause((x) => C.newValueLE(x, fee), 1, ['newValue8'])
-  asm.pick('newChunk'); asm.cat('nextOutput')
-  asm.bindOutput('nextOutput')
-}
-
-function retireBody (asm, { fee }) {
-  readState(asm)
-  requireIssuerSig(asm)
-  asm.pick('preimage', 'pv'); asm.clause((x) => C.newValueLE(x, fee), 1, ['newValue8'])
-  asm.data(P2PKH_PRE, 'pre'); asm.pick('issuer'); asm.cat('ik1'); asm.data(P2PKH_POST, 'post'); asm.cat('issuerChunk')
-  asm.cat('retireOutput')
-  asm.bindOutput('retireOutput')
-}
-
 function buildScript ({ genesis, status = ISSUED, issuer, transitions = CERT_TRANSITIONS, fee = DEFAULT_FEE }) {
   const g = buf(genesis); const iss = pkhOf(issuer)
   if (g.length !== GEN_BYTES) throw new Error('genesis must be 32 bytes')
@@ -127,17 +73,11 @@ function buildScript ({ genesis, status = ISSUED, issuer, transitions = CERT_TRA
   C.authenticateThenBranch(s)
 
   const tr = new StackAsm(s); tr.main = ['pubkey', 'sig', 'move', 'preimage']
-  transitionBody(tr, { transitions, fee })
-  while (tr.main.length) tr.drop()
-  tr.raw(Opcode.OP_1, 0, ['ok'])
-  const trDepth = tr.main.length
+  covsteps.lifecycleTransition(tr, { transitions, fee })
 
   s.add(Opcode.OP_ELSE)
   const rt = new StackAsm(s); rt.main = ['pubkey', 'sig', 'preimage']
-  retireBody(rt, { fee })
-  while (rt.main.length) rt.drop()
-  rt.raw(Opcode.OP_1, 0, ['ok'])
-  if (rt.main.length !== trDepth) throw new Error(`lifecycle: branches leave different depths (${trDepth} vs ${rt.main.length})`)
+  covsteps.lifecycleRetire(rt, { fee })
   s.add(Opcode.OP_ENDIF)
 
   const size = s.toBuffer().length

@@ -5,6 +5,7 @@ const PushTx = require('@smartledger/bsv/lib/covenant/pushtx')
 const helpers = require('@smartledger/bsv/lib/covenant/helpers')
 const C = require('../clauses')
 const { StackAsm } = require('../stackasm')
+const covsteps = require('../covsteps')
 const Script = bsv.Script
 const Opcode = bsv.Opcode
 
@@ -28,17 +29,9 @@ const Opcode = bsv.Opcode
 // enough. Game state is 32 bytes (a board hash, a score encoding, whatever the app
 // commits to), spender-chosen each move and spliced in, everything else identical.
 
-const A_BYTES = 20
-const B_BYTES = 20
-const TURN_BYTES = 1
 const GSTATE_BYTES = 32
-const STATE_BYTES = A_BYTES + B_BYTES + TURN_BYTES + GSTATE_BYTES   // 73, single-byte push (0x49)
-const VARINT_BYTES = 3
-const HEAD_BYTES = VARINT_BYTES + 1
 const DUST = 2000
 const DEFAULT_FEE = 300
-const P2PKH_PRE = Buffer.from('1976a914', 'hex')
-const P2PKH_POST = Buffer.from('88ac', 'hex')
 
 function buf (x) { return Buffer.isBuffer(x) ? x : Buffer.from(x, 'hex') }
 function hash160Of (a) { return Buffer.isBuffer(a) ? a : (typeof a === 'string' ? bsv.Address.fromString(a) : a).hashBuffer }
@@ -53,66 +46,17 @@ function pkhOf (a) {
 function gstateBuf (g) { const b = g ? buf(g) : Buffer.alloc(GSTATE_BYTES); if (b.length !== GSTATE_BYTES) throw new Error('gstate must be 32 bytes'); return b }
 function state (a, b, turn, gstate) { return Buffer.concat([pkhOf(a), pkhOf(b), Buffer.from([turn]), gstateBuf(gstate)]) }
 
-function readState (asm) {
-  asm.clause(C.selfChunk, 0, ['chunk'])
-  asm.splitAt(HEAD_BYTES, 'header', 'r1')
-  asm.splitAt(A_BYTES, 'a', 'r2')
-  asm.splitAt(B_BYTES, 'b', 'r3')
-  asm.splitAt(TURN_BYTES, 'turn', 'r4')
-  asm.splitAt(GSTATE_BYTES, 'gstate', 'tail')
-}
-
-function moveBody (asm, { fee }) {
-  readState(asm)
-  // the signer must be the player whose turn it is: (pkh==a ∧ turn==0) ∨ (pkh==b ∧ turn==1)
-  asm.pick('pubkey'); asm.hash160('spkh')
-  asm.pick('turn'); asm.bin2num('turnNum')
-  asm.pick('spkh'); asm.pick('a'); asm.equal('isA')
-  asm.pick('turnNum'); asm.num(0, 'z'); asm.numEqual('t0'); asm.raw(Opcode.OP_BOOLAND, 2, ['e1'])
-  asm.pick('spkh'); asm.pick('b'); asm.equal('isB')
-  asm.pick('turnNum'); asm.num(1, 'one'); asm.numEqual('t1'); asm.raw(Opcode.OP_BOOLAND, 2, ['e2'])
-  asm.raw(Opcode.OP_BOOLOR, 2, ['authOk']); asm.verify()
-  asm.pick('sig'); asm.pick('pubkey'); asm.checkSigVerify()
-  // the next game state is spender-chosen, exactly 32 bytes
-  asm.pick('newState'); asm.size('nsz'); asm.num(GSTATE_BYTES, 'gb'); asm.equalVerify()
-  // the turn flips: newTurn = 1 - turnNum, one byte
-  asm.num(1, 'one2'); asm.pick('turnNum'); asm.sub('ntn'); asm.num2bin(TURN_BYTES, 'newTurn')
-  // successor: a ‖ b unchanged, turn flipped, new game state; everything else identical
-  asm.pick('header'); asm.pick('a'); asm.cat('h1'); asm.pick('b'); asm.cat('h2')
-  asm.pick('newTurn'); asm.cat('h3'); asm.pick('newState'); asm.cat('h4'); asm.pick('tail'); asm.cat('newChunk')
-  asm.pick('preimage', 'pv'); asm.clause((x) => C.newValueLE(x, fee), 1, ['newValue8'])
-  asm.pick('newChunk'); asm.cat('moveOut')
-  asm.bindOutput('moveOut')
-}
-
-function settleBody (asm, { fee }) {
-  readState(asm)
-  asm.pick('pubA'); asm.hash160('apkh'); asm.pick('a'); asm.equalVerify(); asm.pick('sigA'); asm.pick('pubA'); asm.checkSigVerify()
-  asm.pick('pubB'); asm.hash160('bpkh'); asm.pick('b'); asm.equalVerify(); asm.pick('sigB'); asm.pick('pubB'); asm.checkSigVerify()
-  asm.pick('winner'); asm.size('wsz'); asm.num(20, 'w20'); asm.equalVerify()
-  asm.pick('preimage', 'pv'); asm.clause((x) => C.newValueLE(x, fee), 1, ['newValue8'])
-  asm.data(P2PKH_PRE, 'pre'); asm.pick('winner'); asm.cat('wk'); asm.data(P2PKH_POST, 'post'); asm.cat('wchunk')
-  asm.cat('settleOut')
-  asm.bindOutput('settleOut')
-}
-
 function buildScript ({ a, b, turn = 0, gstate, fee = DEFAULT_FEE }) {
   const s = new Script()
   s.add(state(a, b, turn, gstate)).add(Opcode.OP_DROP)
   C.authenticateThenBranch(s)
 
   const mv = new StackAsm(s); mv.main = ['pubkey', 'sig', 'newState', 'preimage']
-  moveBody(mv, { fee })
-  while (mv.main.length) mv.drop()
-  mv.raw(Opcode.OP_1, 0, ['ok'])
-  const d = mv.main.length
+  covsteps.turnsMove(mv, { fee })
 
   s.add(Opcode.OP_ELSE)
   const st = new StackAsm(s); st.main = ['pubA', 'sigA', 'pubB', 'sigB', 'winner', 'preimage']
-  settleBody(st, { fee })
-  while (st.main.length) st.drop()
-  st.raw(Opcode.OP_1, 0, ['ok'])
-  if (st.main.length !== d) throw new Error(`turns: branches leave different depths (${d} vs ${st.main.length})`)
+  covsteps.turnsSettle(st, { fee })
   s.add(Opcode.OP_ENDIF)
 
   const size = s.toBuffer().length

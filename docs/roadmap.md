@@ -13,10 +13,15 @@ These round out what already exists and should land before the larger platforms 
   `stream()` (→ [journal](predicates.md#journal)), `treasury()` (→ [pool](predicates.md#pool)/[ledger](predicates.md#ledger)),
   `asset()` (→ [asset](predicates.md#asset)). Same shape as the four that exist: business
   vocabulary in, deployed-identical bytes out, plain-English guarantees and errors.
-- **Extend the `@contract` TypeScript frontend** (`src/tslang.js`) from linear predicates to
-  **branch and dispatch** method bodies (`if/else`, selectors), so `lifecycle`, `metered`,
-  `token`, and `turns` compile from `@contract` classes too — with `@state` field
-  declarations the compiler turns into offsets and push-encoding.
+- **~~Extend the `@contract` TypeScript frontend~~ (done)** (`src/tslang.js`) — the frontend
+  now covers **branch and dispatch** method bodies (`if/else`, selectors) as well as linear
+  ones, with `@field` declarations the compiler turns into offsets and push-encoding. All four
+  named targets compile from `@contract` classes byte-identical to the deployed predicate:
+  `metered` and `token` (branches), `asset` and `sovereign` (dispatch), and now
+  [`lifecycle`](predicates.md#lifecycle) and [`turns`](predicates.md#turns) — the two
+  state-machine covenants, each a two-method `@branch('asm')` class. Their branch bodies were
+  lifted into `src/covsteps.js` so the predicate and the compiler emit from one source and
+  cannot drift.
 - **More graph compositions** — register the remaining predicted-safe combinations
   (`guarded ∧ journal`, `pool ∧ witness`) as they are built, so the graph emits them
   byte-identical, and keep the composition-safety checker ahead of them.

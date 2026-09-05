@@ -42,6 +42,18 @@ console.log('@contract classes compile byte-identical to the deployed predicate 
     'contracts/metered.ts (a two-method branch class) → metered, byte-identical')
 }
 {
+  const l = P('lifecycle'); const ex = l.example()
+  const params = { genesis: ex.genesis, status: ex.status, issuer: ex.issuer, transitions: l.CERT_TRANSITIONS, fee: ex.fee }
+  ok(build(src('lifecycle'), params).toHex() === l.lock(params).toHex(),
+    'contracts/lifecycle.ts (a two-method asm-branch state machine) → lifecycle, byte-identical')
+}
+{
+  const tn = P('turns'); const ex = tn.example()
+  const params = { a: ex.a.toAddress().toString(), b: ex.b.toAddress().toString(), turn: ex.turn, gstate: ex.gstate, fee: 300 }
+  ok(build(src('turns'), params).toHex() === tn.lock(params).toHex(),
+    'contracts/turns.ts (a two-player turn-based game) → turns, byte-identical')
+}
+{
   // an asm branch: each side inherits its own @given stack and is @selfTerminating
   const { parse } = require(require('path').join(root, 'src/tslang'))
   const t = P('token')
