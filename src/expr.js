@@ -32,6 +32,18 @@ const helpers = require('@smartledger/bsv/lib/covenant/helpers')
 const PushTx = require('@smartledger/bsv/lib/covenant/pushtx')
 const { StackAsm } = require('./stackasm')
 const C = require('./clauses')
+const covsteps = require('./covsteps')
+
+// Fixed-width state field types (a subset — enough for a counter). The width feeds the
+// read/increment/recreate splice; the head is always the 3-byte scriptlen varint + the
+// 1-byte push opcode (true for a script of 253..65535 bytes, which a covenant always is).
+const STATE_TYPES = { u8: 1, u16: 2, u32: 4, u64: 8 }
+const STATE_HEAD = 4
+function stateBuf (value, width) {
+  const b = Buffer.alloc(width)
+  b.writeUIntLE(value, 0, Math.min(width, 6))
+  return b
+}
 const Opcode = bsv.Opcode
 const Script = bsv.Script
 const n = helpers.scriptNum
@@ -47,7 +59,7 @@ const CTX = {
 
 // ---- tokenizer ------------------------------------------------------------------------
 const TWO = ['==', '!=', '<=', '>=', '&&', '||', '++']
-const ONE = ['<', '>', '+', '-', '*', '/', '%', '!', '(', ')', ',', '{', '}', '[', ']', '=']
+const ONE = ['<', '>', '+', '-', '*', '/', '%', '!', '(', ')', ',', '{', '}', '[', ']', '=', ':']
 function tokenize (src) {
   const toks = []
   let i = 0
@@ -157,6 +169,7 @@ function parser (toks) {
     if (t.v === 'assert') { next(); eat('('); const e = or(); eat(')'); return { k: 'assert', expr: e } }
     if (t.v === 'pay') { next(); eat('('); const dest = or(); eat(','); const amount = or(); eat(')'); return { k: 'pay', dest, amount } }
     if (t.v === 'recreate') { next(); eat('('); const fee = or(); eat(')'); return { k: 'recreate', fee } }
+    if (t.v === 'state') { next(); const name = eat0id(); eat(':'); const type = eat0id(); return { k: 'state', name, type } }
     // assignment: ident = expr
     if (t.t === 'id') { const name = next().v; eat('='); return { k: 'assign', name, expr: or() } }
     throw new Error(`expr: unrecognised statement starting at '${t.v ?? t.t}'`)
@@ -404,8 +417,15 @@ function compile (source) {
   // one — kept out of v1 so the sound path stays simple.
   const payStmts = stmts.filter((s) => s.k === 'pay')
   const recreateStmts = stmts.filter((s) => s.k === 'recreate')
+  const stateDecls = stmts.filter((s) => s.k === 'state')
   if (recreateStmts.length > 1) throw new Error('expr: a covenant can recreate() itself at most once')
   if (recreateStmts.length && payStmts.length) throw new Error('expr: recreate() and pay() both bind the output set — use one (a recreate with a payout tail is a later rung)')
+  if (stateDecls.length > 1) throw new Error('expr: a covenant may carry one state field for now (a counter)')
+  if (stateDecls.length) {
+    if (!(stateDecls[0].type in STATE_TYPES)) throw new Error(`expr: state ${stateDecls[0].name}: unknown type '${stateDecls[0].type}' (have: ${Object.keys(STATE_TYPES).join(', ')})`)
+    if (!recreateStmts.length) throw new Error('expr: a state field needs a recreate() — it is carried forward, incremented, into the successor')
+    if (ctxInfo.used || stmts.some((s) => s.k === 'assert')) throw new Error('expr: a guarded state covenant (state with tx.<field> or assert) is a later rung; for now a state covenant is the counter and its recreate')
+  }
   const usesContext = ctxInfo.used || payStmts.length > 0 || recreateStmts.length > 0
   if (usesContext && flat.length) throw new Error('expr: a covenant (tx.<field>, pay(...) or recreate(...)) cannot also declare a witness (given ...) yet')
 
@@ -418,6 +438,18 @@ function compile (source) {
     usesContext,
     lock (params = {}) {
       const s = new Script()
+      if (usesContext && stateDecls.length) {
+        // A stateful counter covenant: a fixed-width counter at the front (pushed and dropped),
+        // then the proven read-increment-recreate machinery (metered's hop). Each spend advances
+        // the counter by one into the successor. Monotonic, so it never strands.
+        const d = stateDecls[0]; const width = STATE_TYPES[d.type]
+        s.add(stateBuf(params[d.name] ?? 0, width)).add(Opcode.OP_DROP)
+        C.authenticate(s)
+        C.requireSighashAll(s)
+        covsteps.meteredReadCounterKeep(s, { headBytes: STATE_HEAD, counterBytes: width })
+        covsteps.meteredIncrementRecreate(s, { counterBytes: width, fee: feeOf(recreateStmts[0], params) })
+        return s
+      }
       if (usesContext) {
         // The preimage is the sole stack item the unlock pushed. Bind it to this spend
         // (OP_PUSH_TX), then — because nLockTime is inert on a final input — require the
@@ -504,10 +536,23 @@ function compile (source) {
   // continuation() is needed — the recreated coin is byte-identical, so onchain records it from
   // the deployment itself. A test passes actualOutputs / actualAmount / actualScript to break it.
   if (recreateStmts.length) {
+    const successor = (ctx) => stateDecls.length
+      ? predicate.lock({ ...ctx, [stateDecls[0].name]: (ctx[stateDecls[0].name] ?? 0) + 1 })  // counter advanced
+      : ctx.lockingScript                                                                     // byte-identical
     predicate.outputs = (ctx = {}) => ctx.actualOutputs || [new bsv.Transaction.Output({
-      script: ctx.actualScript || ctx.lockingScript,
+      script: ctx.actualScript || successor(ctx),
       satoshis: ctx.actualAmount ?? (ctx.satoshis - feeOf(recreateStmts[0], ctx))
     })]
+    // A state covenant's successor differs (the counter advanced), so onchain records it from a
+    // continuation with clean params (never the wallet key). A plain recreate needs none.
+    if (stateDecls.length) {
+      predicate.continuation = (ctx = {}) => {
+        const d = stateDecls[0]
+        const np = { [d.name]: (ctx[d.name] ?? 0) + 1 }
+        if (recreateStmts[0].fee.k === 'param') np[recreateStmts[0].fee.name] = feeOf(recreateStmts[0], ctx)
+        return { script: predicate.lock(np), params: np }
+      }
+    }
   }
   return predicate
 }

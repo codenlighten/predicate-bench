@@ -1,0 +1,7 @@
+# A monotonic counter covenant — STATE authored from an expression. A 4-byte counter rides in
+# the covenant's own script; every spend splices it out, advances it by one, and splices it
+# into the successor, so the coin carries a provable, un-forgeable hop count. It refuses any
+# transition that is not exactly +1. (A guarded/bounded counter with an exit is a later rung.)
+#   sci deploy examples/counter.expr count=0 hopFee=150
+state count: u32
+recreate(this.hopFee)

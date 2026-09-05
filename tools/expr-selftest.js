@@ -183,6 +183,22 @@ predicate('!(a == b)', 'given a b\nassert(!(a == b))', [
   ])
 }
 
+// STATE from an expression: a monotonic counter covenant. The counter is spliced out of the
+// covenant's own script, advanced by one, and spliced into the successor — a state machine.
+{
+  const p = expr.compile('state count: u32\nrecreate(this.hopFee)')
+  const jumped = p.lock({ count: 5, hopFee: 150 })   // a successor with the counter jumped, not +1
+  predicate('counter covenant: state count: u32; recreate(this.hopFee)', 'state count: u32\nrecreate(this.hopFee)', [
+    { count: 0, hopFee: 150 },
+    { count: 7, hopFee: 150 },                                        // advances from any value
+    { count: 0, hopFee: 150, actualScript: jumped, shouldFail: true } // must be +1, not a jump
+  ])
+  // the successor genuinely carries count+1
+  ok(p.outputs({ count: 3, hopFee: 150, satoshis: 5000, lockingScript: p.lock({ count: 3, hopFee: 150 }) })[0].script.toHex() ===
+     p.lock({ count: 4, hopFee: 150 }).toHex(),
+  'the counter covenant recreates itself with count incremented by exactly one')
+}
+
 // m-of-n multisig: a threshold of signatures, checked in pubkey order (NULLDUMMY dummy)
 {
   const keys = [0, 1, 2].map(() => bsv.PrivateKey.fromRandom())

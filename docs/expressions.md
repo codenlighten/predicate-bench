@@ -149,10 +149,22 @@ that does not recreate it is refused. And it composes too: `recreate ∧ tx.lock
 
 So three of the catalogue's covenants — a timelock, a forced-payment covenant, and a
 self-recreating perpetual — now fall out of one-line expressions, byte for byte, and their
-primitives (`tx.locktime`, `pay`, `recreate`) combine into covenants no one wrote by hand. The
-last rung, **state**: a `recreate` that splices *changed* state into the successor (a counter,
-a status), so a full state machine authors from an expression — the same bridge, one splice
-further on.
+primitives (`tx.locktime`, `pay`, `recreate`) combine into covenants no one wrote by hand.
+
+The last rung is **state** — a `recreate` that carries *changed* state into the successor:
+
+```
+state count: u32
+recreate(this.hopFee)
+```
+
+A fixed-width counter rides in the covenant's own script; every spend splices it out, advances
+it by one, and splices it into the successor, so the coin carries a provable, un-forgeable hop
+count and refuses any transition that is not exactly `+1`. It reuses the exact
+read-increment-recreate machinery the deployed [`metered`](predicates.md#metered) covenant is
+built from, so the splice is sound; being monotonic, it never strands. That is a state machine
+authored from an expression — the frontier's summit. A *guarded* counter (a bound with an exit
+branch) and richer transitions are the natural continuation, on the same bridge.
 
 ## From the command line
 
