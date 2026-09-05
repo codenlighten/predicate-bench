@@ -147,3 +147,7 @@ bytes.
 <!-- /audit -->
 
 See [mainnet-log.md](docs/mainnet-log.md).
+
+## License
+
+[MIT](LICENSE). Use it, fork it, verify every txid against the chain yourself.

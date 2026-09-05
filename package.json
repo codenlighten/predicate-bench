@@ -28,9 +28,16 @@
     "selftest:highlevel": "node tools/highlevel-selftest.js",
     "selftest:opcodes": "node tools/opcodes-selftest.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "bitcoin",
+    "bsv",
+    "bitcoin-script",
+    "smart-contracts",
+    "covenants",
+    "op-push-tx"
+  ],
+  "author": "codenlighten <greg@smartledger.technology>",
+  "license": "MIT",
   "dependencies": {
     "@smartledger/bsv": "^9.6.0"
   },
