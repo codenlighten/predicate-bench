@@ -42,7 +42,7 @@
   "author": "codenlighten <greg@smartledger.technology>",
   "license": "MIT",
   "dependencies": {
-    "@smartledger/bsv": "^9.6.0"
+    "@smartledger/bsv": "^9.7.0"
   },
   "bin": {
     "sci": "bin/cli.js"
