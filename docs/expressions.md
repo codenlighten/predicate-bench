@@ -30,7 +30,8 @@ tests that judge every predicate here. Nothing is simulated.
 - **Comparison** — `== != < <= > >=`, leaving a boolean.
 - **Boolean** — `&& || !`, with the usual precedence (`||` loosest, unary `!` tightest).
 - **Built-ins** — `hash160(x)`, `hash256(x)`, `sha256(x)`, byte-equality `eq(a, b)`,
-  `min(a, b)`, `max(a, b)`.
+  `min(a, b)`, `max(a, b)`, and **`checkSig(sig, pubkey)`** — a real signature check against
+  the spending transaction (`OP_CHECKSIG`).
 - **`assert(expr)`** — each becomes an `OP_VERIFY`; the script ends by discarding the
   witness and leaving `true`, so the stack is clean (as relay policy requires).
 
@@ -40,6 +41,20 @@ A hashlock — knowledge of a preimage as a spending condition — is one line:
 given preimage
 assert(eq(hash160(preimage), this.h))
 ```
+
+And ownership is a real signature, so a **P2PKH is two**:
+
+```
+given sig pubkey
+assert(eq(hash160(pubkey), this.owner))
+assert(checkSig(sig, pubkey))
+```
+
+The `sig` witness is not a constant — a valid signature commits to the whole spending
+transaction. Pass a private key for it and `unlock(...)` signs over the real tx through the
+harness's signing context; a static value could never satisfy `OP_CHECKSIG`. This compiles to
+a 32-byte lock that the interpreter accepts for the owner and refuses for anyone else — a
+forged public key trips `NULLFAIL`, the same policy bit the hand-written predicates respect.
 
 ## How it is built (and why it is ours, not sCrypt's)
 
@@ -66,6 +81,7 @@ built-ins, a hashlock and a sha256 commitment — each verified against the inte
 This is the beginning of a general contract *language*, complementary to the curated
 covenants rather than a replacement: expressions for new, straight-line logic; `@contract`
 classes and the [`StackAsm`](authoring.md) escape hatch for the hand-tuned, self-recreating
-covenants. The natural next steps — bounded loops that unroll, structs and fixed-size arrays,
-and a `checkSig` built-in over the spending context — extend the expression surface without
-giving up the real-interpreter, mainnet-proven, refusal-first bar the rest of the bench holds.
+covenants. Ownership already authors from a condition (`checkSig`); the natural next steps —
+compile-time-bounded loops that unroll (Merkle proofs, iteration), and structs and fixed-size
+arrays over the existing fixed-width fields — extend the expression surface without giving up
+the real-interpreter, mainnet-proven, refusal-first bar the rest of the bench holds.

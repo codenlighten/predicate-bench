@@ -118,7 +118,10 @@ const CALL = {
   sha256: { arity: 1, emit: (a, l) => a.sha256(l) },
   eq: { arity: 2, emit: (a, l) => a.equal(l) },              // byte-equality (OP_EQUAL)
   min: { arity: 2, emit: (a, l) => a.min(l) },
-  max: { arity: 2, emit: (a, l) => a.max(l) }
+  max: { arity: 2, emit: (a, l) => a.max(l) },
+  // checkSig(sig, pubkey) -> OP_CHECKSIG, leaving a boolean. The sig witness is a real
+  // signature over the spending transaction; see unlock() — pass a PrivateKey and it signs.
+  checkSig: { arity: 2, emit: (a, l) => a.op('OP_CHECKSIG', 2, [l]) }
 }
 
 function bakedPush (asm, v, name, ref) {
@@ -199,16 +202,23 @@ function compile (source) {
       asm.raw(Opcode.OP_1, 0, ['true'])
       return s
     },
-    // The unlocking script pushes the witness values, bottom -> top, push-only (policy).
-    unlock (witness = {}) {
+    // The unlocking script pushes the witness values, bottom -> top, push-only (policy). A
+    // PrivateKey witness is a SIGNATURE: it is signed over the real spending transaction using
+    // the signing context the harness passes in (ctx.sign) — a static value cannot be a valid
+    // signature, so `checkSig` needs the tx, not a constant.
+    unlock (ctx = {}) {
       const s = new Script()
       for (const name of given) {
-        const v = witness[name]
+        const v = ctx[name]
         if (v === undefined) throw new Error(`expr: unlock is missing witness '${name}'`)
-        if (Buffer.isBuffer(v)) s.add(v)
+        if (v instanceof bsv.PrivateKey) {
+          if (typeof ctx.sign !== 'function') throw new Error(`expr: witness '${name}' is a key to sign, but no signing context was given (run it through the harness)`)
+          s.add(ctx.sign(v, ctx.sighashType))
+        } else if (Buffer.isBuffer(v)) s.add(v)
+        else if (v instanceof bsv.PublicKey) s.add(v.toBuffer())
         else if (typeof v === 'number') s.add(n(v))
         else if (typeof v === 'string') s.add(Buffer.from(v, 'hex'))
-        else throw new Error(`expr: witness '${name}' must be a number, hex string, or Buffer`)
+        else throw new Error(`expr: witness '${name}' must be a number, hex string, Buffer, PublicKey, or (to sign) a PrivateKey`)
       }
       return s
     }

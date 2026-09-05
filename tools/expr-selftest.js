@@ -93,6 +93,31 @@ predicate('!(a == b)', 'given a b\nassert(!(a == b))', [
   { a: 2, b: 2, shouldFail: true }
 ])
 
+// a real P2PKH, authored from an expression: ownership = hash160(pubkey)==owner AND a
+// signature over the spending tx. The sig witness is a PrivateKey; unlock() signs it.
+{
+  const alice = bsv.PrivateKey.fromRandom()
+  const bob = bsv.PrivateKey.fromRandom()
+  const owner = bsv.crypto.Hash.sha256ripemd160(alice.toPublicKey().toBuffer())
+  predicate('p2pkh from a condition: eq(hash160(pubkey), owner) && checkSig(sig, pubkey)',
+    'given sig pubkey\nassert(eq(hash160(pubkey), this.owner))\nassert(checkSig(sig, pubkey))', [
+      { sig: alice, pubkey: alice.toPublicKey().toBuffer(), owner },
+      { sig: bob, pubkey: bob.toPublicKey().toBuffer(), owner, shouldFail: true },      // wrong owner
+      { sig: bob, pubkey: alice.toPublicKey().toBuffer(), owner, shouldFail: true }     // forged pubkey → NULLFAIL
+    ])
+}
+
+// pay-to-pubkey: a baked pubkey, only its holder's signature spends
+{
+  const k = bsv.PrivateKey.fromRandom()
+  const wrong = bsv.PrivateKey.fromRandom()
+  const pubkey = k.toPublicKey().toBuffer().toString('hex')
+  predicate('p2pk: checkSig(sig, this.pubkey)', 'given sig\nassert(checkSig(sig, this.pubkey))', [
+    { sig: k, pubkey },
+    { sig: wrong, pubkey, shouldFail: true }
+  ])
+}
+
 console.log('\nthe compiler REFUSES malformed source (a bad predicate never reaches the chain):')
 const rejects = (title, source, re) => {
   try { expr.compile(source); ok(false, `${title} — compiled but should have thrown`) } catch (e) { ok(re.test(e.message), `${title} → “${e.message}”`) }

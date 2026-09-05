@@ -11,12 +11,13 @@ These round out what already exists and should land before the larger platforms 
 
 - **Grow the expression compiler** ([expressions.md](expressions.md), `src/expr.js`) — the
   frontend can now AUTHOR a new predicate from a condition (`assert(a + b == this.total)`),
-  not just reproduce curated covenants. Extend the surface, keeping the real-interpreter,
-  refusal-first bar: a **`checkSig(sig, pubkey)`** built-in over the spending context (so
-  ownership predicates author too), **compile-time-bounded loops** that unroll to Script
-  (Merkle/iteration), and **structs + fixed-size arrays** over the existing fixed-width
-  fields. A real TypeScript-AST front end (the `typescript` package) is the eventual upgrade
-  for a richer subset; the hand-written parser is the deliberate, zero-dependency start.
+  not just reproduce curated covenants — including ownership: **`checkSig(sig, pubkey)`** over
+  the spending context is in, so a real P2PKH authors from two lines. Extend the surface,
+  keeping the real-interpreter, refusal-first bar: **compile-time-bounded loops** that unroll
+  to Script (Merkle/iteration), and **structs + fixed-size arrays** over the existing
+  fixed-width fields. A real TypeScript-AST front end (the `typescript` package) is the
+  eventual upgrade for a richer subset; the hand-written parser is the deliberate,
+  zero-dependency start.
 - **More domain builders** (`src/highlevel.js`) — `escrow()` (→ [witness](predicates.md#witness)/htlc),
   `stream()` (→ [journal](predicates.md#journal)), `treasury()` (→ [pool](predicates.md#pool)/[ledger](predicates.md#ledger)),
   `asset()` (→ [asset](predicates.md#asset)). Same shape as the four that exist: business
