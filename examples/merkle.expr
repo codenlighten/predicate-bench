@@ -1,0 +1,12 @@
+# Merkle membership: a bounded loop unrolls a 3-level proof into the tree root.
+# dir[i] is 1 when our node is the right child at level i.
+#   sci deploy  examples/merkle.expr root=<hash256 hex>
+#   sci unlock  <txid> leaf=<hex> sib=<hex,hex,hex> dir=<0/1,...>
+given leaf
+given sib[3]
+given dir[3]
+let h = leaf
+for i in 3 {
+  h = if(dir[i], hash256(sib[i] ++ h), hash256(h ++ sib[i]))
+}
+assert(eq(h, this.root))

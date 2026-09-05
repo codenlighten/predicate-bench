@@ -31,6 +31,29 @@ function parseParams (list) {
 
 const j = (o) => JSON.stringify(o, null, 2)
 
+// A predicate authored from an expression lives in a .expr file; compile it to a predicate
+// object the deploy/unlock path already accepts (onchain.deploy takes an object, and a
+// receipt carries its source so unlock recompiles it).
+const isExprFile = (name) => typeof name === 'string' && name.endsWith('.expr')
+const compileExprFile = (file) => require('../src/expr').compile(fs.readFileSync(file, 'utf8'))
+
+// Resolve the wallet shorthands in k=v values: @pkh / @pubkey are public (safe to bake or
+// spend with); @key is the wallet's private key, only ever a spend-time witness to SIGN, never
+// a baked param (allowKey=false for deploy/build). Everything else passes through untouched.
+function resolveRefs (params, { allowKey = false } = {}) {
+  const bsv = require('@smartledger/bsv')
+  let w
+  const load = () => (w = w || wallet.load())
+  const out = {}
+  for (const [k, v] of Object.entries(params)) {
+    if (v === '@pkh') out[k] = bsv.crypto.Hash.sha256ripemd160(load().privateKey.toPublicKey().toBuffer()).toString('hex')
+    else if (v === '@pubkey') out[k] = load().privateKey.toPublicKey().toBuffer()
+    else if (v === '@key') { if (!allowKey) throw new Error(`'@key' is a private key — only valid as a spend-time witness, never a baked param`); out[k] = load().privateKey }
+    else out[k] = v
+  }
+  return out
+}
+
 const commands = {
   async 'wallet:create' () {
     const r = wallet.create()
@@ -71,11 +94,21 @@ const commands = {
     }
   },
 
+  // Compile a .expr file and show the locking script it produces — author-and-inspect, no chain.
+  async build () {
+    const [file, ...rest] = args
+    if (!file || !isExprFile(file)) throw new Error('usage: build <file.expr> [key=value ...]')
+    const pred = compileExprFile(file)
+    const lock = pred.lock(resolveRefs(parseParams(rest)))
+    console.log(j({ given: pred.given, lockSize: lock.toBuffer().length, lockAsm: lock.toASM(), lockHex: lock.toHex() }))
+  },
+
   async deploy () {
     const [name, ...rest] = args
-    if (!name) throw new Error('usage: deploy <predicate> [key=value ...] [--dry-run]')
+    if (!name) throw new Error('usage: deploy <predicate|file.expr> [key=value ...] [--dry-run]')
     const dryRun = rest.includes('--dry-run')
-    const r = await onchain.deploy(name, parseParams(rest), { dryRun })
+    const predicate = isExprFile(name) ? compileExprFile(name) : name
+    const r = await onchain.deploy(predicate, resolveRefs(parseParams(rest)), { dryRun })
     console.log(j(r))
   },
 
@@ -84,7 +117,8 @@ const commands = {
     if (!txid) throw new Error('usage: unlock <txid> [key=value ...] [--dry-run] [--force]')
     const d = onchain.readLedger().find(x => x.txid === txid)
     if (!d) throw new Error(`no deployment recorded for ${txid} in ${onchain.LEDGER}`)
-    const r = await onchain.unlock(d, parseParams(rest), {
+    // A spend may carry the wallet key as a signing witness (@key), so allowKey here.
+    const r = await onchain.unlock(d, resolveRefs(parseParams(rest), { allowKey: true }), {
       dryRun: rest.includes('--dry-run'),
       force: rest.includes('--force')
     })
@@ -105,8 +139,10 @@ if (!run) {
   console.log('  balance                    confirmed + unconfirmed')
   console.log('  utxos                      spendable outputs')
   console.log('  predicates                 list the scripts we have written')
-  console.log('  deploy <name> [k=v ...]    lock sats behind a predicate on chain')
+  console.log('  build <file.expr> [k=v]    compile an expression predicate, show its script')
+  console.log('  deploy <name|file.expr>    lock sats behind a predicate on chain')
   console.log('  unlock <txid> [k=v ...]    spend it back (verified locally first)')
+  console.log('                             (@pkh / @pubkey / @key resolve to the wallet)')
   console.log('  deployments                what we have put on chain')
   console.log('\n  npm test                   run every predicate against the interpreter, offline')
   process.exit(cmd ? 1 : 0)

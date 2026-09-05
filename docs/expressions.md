@@ -86,6 +86,24 @@ interpreter accepts for a genuine member and refuses for a forged leaf or a tamp
 The bound must resolve to a constant — a number or a baked `this.N` — so the script size is
 fixed and knowable, never spender-controlled.
 
+## From the command line
+
+A predicate authored from an expression is a first-class citizen of the CLI. Write it in a
+`.expr` file (`examples/` has `p2pkh`, `hashlock`, `merkle`), then build, deploy and spend it —
+no JavaScript:
+
+```bash
+node bin/cli.js build  examples/p2pkh.expr owner=@pkh      # compile, show the 32-byte script
+node bin/cli.js deploy examples/p2pkh.expr owner=@pkh      # lock sats behind it on chain
+node bin/cli.js unlock <txid> sig=@key pubkey=@pubkey      # spend it back (verified first)
+```
+
+`@pkh`, `@pubkey` and `@key` resolve to the funding wallet's pubkey-hash, public key and
+private key. `@key` is only ever a *spend-time* witness to sign with — baking a private key
+into a locking script (or a receipt) is refused, at the CLI and again in `onchain.deploy`.
+The deployed coin records its source, so `unlock` recompiles the predicate from the receipt and
+`verify:chain` confirms the bytes on chain.
+
 ## How it is built (and why it is ours, not sCrypt's)
 
 sCrypt compiles a strict subset of TypeScript through the real TypeScript compiler to an

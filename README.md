@@ -28,6 +28,9 @@ node bin/cli.js predicates
 
 node bin/cli.js deploy hashlock secret="open sesame"
 node bin/cli.js unlock <txid> secret="open sesame"
+
+node bin/cli.js build examples/p2pkh.expr owner=@pkh   # author a predicate from a condition
+node bin/cli.js deploy examples/p2pkh.expr owner=@pkh  # …compile it to Script and deploy
 ```
 
 `--dry-run` on either shows the raw transaction without sending it.

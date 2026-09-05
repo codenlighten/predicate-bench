@@ -1,0 +1,8 @@
+# A pay-to-pubkey-hash, authored as a condition: the spender proves they hold the
+# key whose hash is the owner, and signs the spending transaction.
+#   sci build   examples/p2pkh.expr owner=@pkh
+#   sci deploy  examples/p2pkh.expr owner=@pkh
+#   sci unlock  <txid> sig=@key pubkey=@pubkey
+given sig pubkey
+assert(eq(hash160(pubkey), this.owner))
+assert(checkSig(sig, pubkey))

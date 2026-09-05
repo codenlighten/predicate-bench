@@ -1,0 +1,5 @@
+# A hashlock: knowledge of a preimage is the spending condition.
+#   sci deploy  examples/hashlock.expr h=<hash160 hex>
+#   sci unlock  <txid> preimage=<hex>
+given preimage
+assert(eq(hash160(preimage), this.h))

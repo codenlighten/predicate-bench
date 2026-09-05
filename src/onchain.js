@@ -69,6 +69,11 @@ async function deploy (predicateName, params = {}, { dryRun = false, satoshis } 
   // expression compiler produces one). Either way it just needs lock()/unlock().
   const predicate = typeof predicateName === 'string' ? loadPredicate(predicateName) : predicateName
   const predName = typeof predicateName === 'string' ? predicateName : (predicateName.name || 'expr')
+  // A baked param is spliced into the locking script and stored in the receipt. A private key
+  // must never be either — refuse it loudly rather than leak it on chain and to disk.
+  for (const [k, v] of Object.entries(params)) {
+    if (v instanceof bsv.PrivateKey) throw new Error(`deploy: refusing to bake a private key into '${k}' — a baked param goes on chain and into the ledger`)
+  }
   const ctx = { ...params, key: w.privateKey }
   const lockingScript = predicate.lock(ctx)
 
