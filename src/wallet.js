@@ -109,7 +109,7 @@ function recordOutputs (tx) {
     if (o.script.toHex() !== mine) return
     const key = `${tx.id}:${i}`
     if (seen.has(key)) return
-    known.push({ txId: tx.id, outputIndex: i, satoshis: o.satoshis })
+    known.push({ txId: tx.id, outputIndex: i, satoshis: o.satoshis, at: new Date().toISOString() })
   })
   fs.writeFileSync(outputsFile(), JSON.stringify(known, null, 2), { mode: 0o600 })
   return known
@@ -138,9 +138,29 @@ async function utxos ({ includeSpent = false } = {}) {
     throw new Error('no explorer answered and no local record exists — cannot enumerate UTXOs')
   }
 
+  // The local own-output cache only exists to bridge UNCONFIRMED change between
+  // back-to-back transactions; once an output confirms, the chain reports it, and
+  // once it is spent, both should forget it. But recordSpent only sees inputs of
+  // transactions we broadcast, so an output spent by anything else (a covenant
+  // recreating itself, a spend from another machine) lingers in the cache and gets
+  // offered as an input — which the network rejects with "Missing inputs". So when
+  // the chain has answered, keep a cached entry only if the chain still lists it
+  // unspent, or it is recent enough to be genuinely unconfirmed. Stale entries are
+  // pruned from disk in passing, so the cache self-heals instead of growing forever.
+  const OWN_CACHE_TTL_MS = 30 * 60 * 1000
+  const chainSet = new Set(rows.map(u => `${u.txId}:${u.outputIndex}`))
+  const own = readOwnOutputs()
+  const freshOwn = sources.length
+    ? own.filter(u => chainSet.has(`${u.txId}:${u.outputIndex}`) ||
+        (u.at && Date.now() - Date.parse(u.at) < OWN_CACHE_TTL_MS))
+    : own
+  if (sources.length && freshOwn.length !== own.length) {
+    fs.writeFileSync(outputsFile(), JSON.stringify(freshOwn, null, 2), { mode: 0o600 })
+  }
+
   const spent = includeSpent ? new Set() : readSpent()
   const byOutpoint = new Map()
-  for (const u of [...rows, ...readOwnOutputs()]) {
+  for (const u of [...rows, ...freshOwn]) {
     const key = `${u.txId}:${u.outputIndex}`
     if (spent.has(key) || byOutpoint.has(key)) continue
     byOutpoint.set(key, u)
