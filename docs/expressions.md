@@ -120,6 +120,11 @@ This compiler is deliberately smaller and more honest about its seams:
   the right answer is half-proven; the refusals are the point.
 - **It refuses bad source at compile time** — an unknown function, a wrong arity, a witness
   that was never declared. A malformed predicate never builds, let alone reaches the chain.
+- **The codegen is fuzzed against its own semantics.** `tools/expr-fuzz.js` generates hundreds
+  of random arithmetic/boolean expressions, evaluates each with a reference interpreter in JS
+  and with the compiled script on the consensus interpreter, and asserts they always agree. A
+  swapped operator or a mismanaged stack would show up as a disagreement — the run is seeded, so
+  it is deterministic, and it is part of `npm test`.
 
 See `tools/expr-selftest.js` for the full set — arithmetic, ranges, boolean composition, the
 built-ins, a hashlock and a sha256 commitment — each verified against the interpreter.
