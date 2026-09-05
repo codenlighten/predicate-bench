@@ -55,11 +55,15 @@ function loadPredicate (name) {
  * The output is non-standard by design; only the locking script decides who
  * gets it back, which is the point of the exercise.
  */
-async function deploy (predicateName, params = {}, { dryRun = false } = {}) {
+async function deploy (predicateName, params = {}, { dryRun = false, satoshis } = {}) {
   const w = wallet.load()
   const predicate = loadPredicate(predicateName)
   const ctx = { ...params, key: w.privateKey }
   const lockingScript = predicate.lock(ctx)
+
+  // Most predicates lock the standard test deposit; a few covenants recreate their output
+  // at a fixed amount larger than that (asset's DUST), so allow an explicit override.
+  const outSats = satoshis ?? cfg.testOutputSats
 
   const utxos = await wallet.utxos()
   if (!utxos.length) throw new Error(`funding wallet ${w.address} has no UTXOs`)
@@ -68,7 +72,7 @@ async function deploy (predicateName, params = {}, { dryRun = false } = {}) {
     .from(utxos)
     .addOutput(new bsv.Transaction.Output({
       script: lockingScript,
-      satoshis: cfg.testOutputSats
+      satoshis: outSats
     }))
     .change(w.address)
     .feePerKb(cfg.feePerKb)
@@ -81,7 +85,7 @@ async function deploy (predicateName, params = {}, { dryRun = false } = {}) {
     params,
     txid: tx.id,
     vout: 0,
-    satoshis: cfg.testOutputSats,
+    satoshis: outSats,
     lockAsm: lockingScript.toASM(),
     lockHex: lockingScript.toHex(),
     fee: tx.getFee(),
