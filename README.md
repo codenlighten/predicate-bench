@@ -2,6 +2,8 @@
 
 *A mainnet-proven laboratory and compiler for Bitcoin (BSV) Script predicates.*
 
+[![test](https://github.com/codenlighten/predicate-bench/actions/workflows/test.yml/badge.svg)](https://github.com/codenlighten/predicate-bench/actions/workflows/test.yml)
+
 A bench for writing custom Bitcoin SV locking scripts and proving them before
 they touch the chain.
 
